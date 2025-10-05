@@ -1,7 +1,10 @@
 # api/routes/generate_form.py
+from __future__ import annotations
+
 from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pathlib import Path
+from json import JSONDecodeError
 import json
 
 from api.pdf_utils.theme_loader import load_theme, apply_style_overrides
@@ -42,41 +45,68 @@ async def generate_form(
     # صورة اختيارية
     photo: UploadFile | None = File(None),
 ):
-    content_type = request.headers.get("content-type","").lower()
+    """
+    ترتيب المعالجة:
+      1) JSON مباشر (payload.profile / payload.layout_inline / payload.layout_name / payload.theme_name)
+      2) ملفات جاهزة من profiles/ و layouts/
+      3) Fallback للـ form النصي
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
 
     # ======================
     # 1) وضع JSON المباشر
     # ======================
     if content_type.startswith("application/json"):
-        payload = await request.json()
-        profile = payload.get("profile") or {}
-        if not profile:
-            raise HTTPException(400, "JSON must include `profile`.")
+        # حارس: امنع 500 عند جسم فاضي أو JSON غير صالح
+        raw = await request.body()
+        if not raw or not raw.strip():
+            raise HTTPException(status_code=400, detail="Empty JSON body")
+        try:
+            payload = json.loads(raw)
+        except JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-        layout_inline = payload.get("layout_inline")
+        profile = payload.get("profile") or {}
+        if not isinstance(profile, dict) or not profile:
+            raise HTTPException(status_code=400, detail="JSON must include a non-empty `profile` object")
+
+        # إعداد الثيم + تخصيصات
         theme = load_theme(payload.get("theme_name") or theme_name)
         apply_style_overrides(theme.get("style") or {})  # يطبّق تغييرات الألوان والأحجام على config
 
+        # تحويل الـ profile إلى ready dict للبلوكات
         ready = build_ready_from_profile(profile)
-        layout_plan = merge_layout((layout_inline or {}).get("layout", []), ready) if layout_inline else []
 
-        # لو ما فيه layout_inline → جرّب ملف layout_name أو theme.layout
+        # اختيار الـ layout
+        layout_plan: list[dict] = []
+        layout_inline = payload.get("layout_inline")
+        if layout_inline and isinstance(layout_inline, dict):
+            layout_plan = merge_layout((layout_inline or {}).get("layout") or [], ready)
+
         if not layout_plan:
-            layout_path = LAYOUTS_DIR / f"{payload.get('layout_name', layout_name)}.json"
+            # اسم ملف layout (بدون .json)
+            ln = payload.get("layout_name", layout_name)
+            layout_path = LAYOUTS_DIR / f"{ln}.json"
             if layout_path.exists():
                 layout = json.loads(layout_path.read_text(encoding="utf-8"))
                 layout_plan = merge_layout(layout.get("layout") or [], ready)
+                # دمج إعدادات الصفحة/الأعمدة من ملف الـ layout إن وجدت
                 theme["page"]    = layout.get("page")    or theme.get("page")    or {}
                 theme["columns"] = layout.get("columns") or theme.get("columns") or {}
             else:
+                # fallback: استخدم layout من الـ theme نفسه
                 layout_plan = merge_layout(theme.get("layout") or [], ready)
 
         ui  = (payload.get("ui_lang") or theme.get("defaults", {}).get("ui_lang") or "en").lower()
         rtl = bool(payload.get("rtl_mode", False)) or bool(theme.get("defaults", {}).get("rtl_mode"))
 
-        pdf = build_resume_pdf(layout_plan=layout_plan, ui_lang=ui, rtl_mode=rtl, theme=theme)
-        return StreamingResponse(iter([pdf]), media_type="application/pdf",
-                                 headers={"Content-Disposition": 'inline; filename=resume.pdf'})
+        # توليد الPDF كبايتات
+        pdf_bytes = build_resume_pdf(layout_plan=layout_plan, ui_lang=ui, rtl_mode=rtl, theme=theme)
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'inline; filename=resume.pdf'}
+        )
 
     # ===========================================
     # 2) وضع الملفات بالأسماء: profile + layout
@@ -84,20 +114,28 @@ async def generate_form(
     profile_path = PROFILES_DIR / f"{profile_name}.json"
     layout_path  = LAYOUTS_DIR  / f"{layout_name}.json"
 
-    ready = None
+    ready: dict | None = None
     if profile_path.exists():
-        profile = json.loads(profile_path.read_text(encoding="utf-8"))
-        ready = build_ready_from_profile(profile)
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+            ready = build_ready_from_profile(profile or {})
+        except Exception:
+            # لا تُفشل الطلب؛ اسمح بالانتقال للـ fallback
+            ready = None
 
     theme = load_theme(theme_name)
     apply_style_overrides(theme.get("style") or {})
 
-    layout_plan = []
+    layout_plan: list[dict] = []
     if layout_path.exists():
-        layout = json.loads(layout_path.read_text(encoding="utf-8"))
-        layout_plan = merge_layout(layout.get("layout") or [], ready or {})
-        theme["page"]    = layout.get("page")    or theme.get("page")    or {}
-        theme["columns"] = layout.get("columns") or theme.get("columns") or {}
+        try:
+            layout = json.loads(layout_path.read_text(encoding="utf-8"))
+            layout_plan = merge_layout(layout.get("layout") or [], ready or {})
+            theme["page"]    = layout.get("page")    or theme.get("page")    or {}
+            theme["columns"] = layout.get("columns") or theme.get("columns") or {}
+        except Exception:
+            # لا تُفشل الطلب؛ اسمح بالانتقال للـ fallback
+            layout_plan = []
 
     # =========================
     # 3) Fallback: form بسيط
@@ -111,7 +149,7 @@ async def generate_form(
         left_sections = parse_sections_text(sections_left_text)
         right_sections = parse_sections_text(sections_right_text)
 
-        contact = {}
+        contact: dict[str, str] = {}
         if location.strip(): contact["location"] = location.strip()
         if phone.strip():    contact["phone"] = phone.strip()
         if email.strip():    contact["email"] = email.strip()
@@ -125,7 +163,7 @@ async def generate_form(
             "contact_info": {"items": contact},
             "key_skills": {"skills": skills},
             "languages": {"languages": languages},
-            "social_links": {k:v for k,v in contact.items() if k in {"github","linkedin","website","site","url","twitter","x"}},
+            "social_links": {k: v for k, v in contact.items() if k in {"github","linkedin","website","site","url","twitter","x"}},
             "projects": {"items": projects, "title": None},
             "education": {"items": education, "title": None},
             "text_section:summary": {
@@ -137,27 +175,31 @@ async def generate_form(
         if not layout_plan:
             layout_plan = merge_layout(theme.get("layout") or [], ready)
 
+    # تحديد RTL/UI
     rtl = (rtl_mode.strip().lower() == "true") or bool(theme.get("defaults", {}).get("rtl_mode"))
     ui  = (theme.get("defaults", {}).get("ui_lang") or ("ar" if rtl else "en")).lower()
 
     if not layout_plan:
-        #raise HTTPException(400, "No layout provided (no layout file, no theme.layout, no JSON).")
+        # fallback نهائي: Layout بسيط مُفصّل
         layout_plan = [
             {"block_id": "header_name", "frame": "right", "data": ready.get("header_name", {})},
             {"block_id": "avatar_circle", "frame": "right", "data": ready.get("avatar_circle", {})},
             {"block_id": "contact_info", "frame": "left",  "data": ready.get("contact_info", {})},
             {"block_id": "key_skills",   "frame": "left",  "data": ready.get("key_skills", {})},
             {"block_id": "languages",    "frame": "left",  "data": ready.get("languages", {})},
-            # ملاحظــة: block_id هنا هو "text_section" فقط، بينما الداتا محفوظة تحت المفتاح "text_section:summary"
+            # ملاحظة: block_id هو "text_section" بينما الداتا محفوظة تحت "text_section:summary"
             {"block_id": "text_section", "frame": "right", "data": ready.get("text_section:summary", {})},
             {"block_id": "projects",     "frame": "right", "data": ready.get("projects", {})},
             {"block_id": "education",    "frame": "right", "data": ready.get("education", {})},
         ]
 
+    # Debugات خفيفة (تساعد أثناء التطوير)
     print("DEBUG LAYOUT PLAN:", layout_plan)
     print("DEBUG READY KEYS:", list(ready.keys()) if ready else None)
 
-
-    pdf = build_resume_pdf(layout_plan=layout_plan, ui_lang=ui, rtl_mode=rtl, theme=theme)
-    return StreamingResponse(iter([pdf]), media_type="application/pdf",
-                             headers={"Content-Disposition": 'inline; filename=resume.pdf'})
+    pdf_bytes = build_resume_pdf(layout_plan=layout_plan, ui_lang=ui, rtl_mode=rtl, theme=theme)
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename=resume.pdf'}
+    )
