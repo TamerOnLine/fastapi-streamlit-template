@@ -1,0 +1,106 @@
+{
+  "name": "modern-pro",
+  "page": {
+    "margins_mm": {
+      "top": 16,
+      "right": 16,
+      "bottom": 16,
+      "left": 16
+    }
+  },
+  "columns": [
+    {
+      "id": "left",
+      "w_mm": 66,
+      "gap_right_mm": 8
+    },
+    {
+      "id": "right",
+      "flex": 1
+    }
+  ],
+  "layout": [
+    {
+      "block_id": "left_panel_bg",
+      "col": "left",
+      "data": {
+        "pad_mm": 4
+      }
+    },
+    {
+      "block_id": "header_name",
+      "col": "right",
+      "data": {
+        "highlight_bg": "#E0F2FE",
+        "box_h_mm": 28,
+        "pad_mm": 4
+      }
+    },
+    {
+      "block_id": "links_inline",
+      "col": "right",
+      "data": {
+        "accent": "#0284C7",
+        "font_size": 9,
+        "gap_mm": 6
+      }
+    },
+    {
+      "block_id": "text_section",
+      "col": "right",
+      "data": {
+        "title": "ملخص",
+        "align": "right",
+        "text": "{{summary}}",
+        "rule": true
+      }
+    },
+    {
+      "block_id": "projects",
+      "col": "right",
+      "data": {
+        "title": "المشاريع المختارة",
+        "show_links": true
+      }
+    },
+    {
+      "block_id": "education",
+      "col": "right",
+      "data": {
+        "title": "التدريب المهني"
+      }
+    },
+    {
+      "block_id": "avatar_circle",
+      "col": "left",
+      "data": {
+        "max_d_mm": 42
+      }
+    },
+    {
+      "block_id": "contact_info",
+      "col": "left",
+      "data": {
+        "title": "معلومات التواصل"
+      }
+    },
+    {
+      "block_id": "key_skills",
+      "col": "left",
+      "data": {
+        "title": "المهارات التقنية"
+      }
+    },
+    {
+      "block_id": "languages",
+      "col": "left",
+      "data": {
+        "title": "اللغات"
+      }
+    }
+  ],
+  "defaults": {
+    "ui_lang": "ar",
+    "rtl_mode": true
+  }
+}

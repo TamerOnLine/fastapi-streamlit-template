@@ -1,25 +1,31 @@
-from __future__ import annotations
-from typing import Dict
-import json
+# streamlit/api_client.py
 import requests
 
-def get_api_base() -> str:
-    # يمكنك تغيير القيمة الافتراضية من الشريط الجانبي أيضاً
-    return "http://127.0.0.1:8000"
+API_BASE = "http://127.0.0.1:8000"
 
-def post_generate_form(api_base: str, payload: Dict) -> bytes:
-    """
-    يرسل application/json إلى FastAPI عند /generate-form
-    payload: قاموس JSON مطابق لما يتوقعه الباكند:
-      {
-        "theme_name": "...",
-        "ui_lang": "en" | "ar" | "de",
-        "rtl_mode": bool,
-        "profile": { ... }
-      }
-    """
-    url = f"{api_base.rstrip('/')}/generate-form"
-    headers = {"Content-Type": "application/json"}
-    resp = requests.post(url, data=json.dumps(payload, ensure_ascii=False), headers=headers, timeout=120)
-    resp.raise_for_status()
-    return resp.content
+def generate_pdf(profile: dict, theme_name: str, layout_name: str | None, ui_lang: str, rtl_mode: bool, use_simple_json: bool = True) -> bytes:
+    payload = {
+        "theme_name": theme_name,
+        "layout_name": layout_name,
+        "ui_lang": ui_lang,
+        "rtl_mode": rtl_mode,
+        "profile": profile or {},  # مهم
+    }
+
+    if use_simple_json:
+        # ✅ أرسل JSON إلى /generate-form-simple
+        r = requests.post(f"{API_BASE}/generate-form-simple", json=payload, timeout=60)
+    else:
+        # (توافق قديم) multipart إلى /generate-form
+        files = {}
+        data = {
+            "theme_name": theme_name,
+            "layout_name": layout_name or "",
+            "ui_lang": ui_lang,
+            "rtl_mode": str(bool(rtl_mode)).lower(),
+            "profile_json": __import__("json").dumps(profile or {}),
+        }
+        r = requests.post(f"{API_BASE}/generate-form", data=data, files=files, timeout=60)
+
+    r.raise_for_status()
+    return r.content

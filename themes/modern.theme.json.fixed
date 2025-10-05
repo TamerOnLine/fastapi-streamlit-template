@@ -21,5 +21,6 @@
     "latin": "Helvetica",
     "latin_bold": "Helvetica-Bold",
     "arabic": "NotoNaskhArabic"
-  }
+  },
+  "layout": []
 }

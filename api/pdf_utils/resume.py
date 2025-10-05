@@ -1,178 +1,262 @@
-from __future__ import annotations
+# api/pdf_utils/resume.py
+"""
+🔧 Resume PDF Builder
+يبني ملف PDF استنادًا إلى كتل (Blocks) وخطة تخطيط (layout plan)
+مع دعم الثيمات الديناميكية (Dynamic Themes) واللغات (LTR/RTL).
+"""
 
+from __future__ import annotations
 from io import BytesIO
-from typing import Any, Dict, List, Tuple, Optional
-from base64 import b64decode
+from typing import Dict, Any, List, Tuple, Optional
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 
-# من هيكل مشروعك الحالي
+# استيرادات من مشروعك
 from .blocks.base import Frame, RenderContext
 from .blocks.registry import get as get_block
 from .data_utils import build_ready_from_profile
 from .config import UI_LANG
 
+# الثيم الديناميكي
+from .theme_loader import load_and_apply
 
-# ---------- أدوات مساعدة ----------
-def _decode_avatar_from_profile(profile: Dict[str, Any]) -> Optional[bytes]:
-    avatar = (profile or {}).get("avatar") or {}
-    b64 = avatar.get("bytes_b64")
-    if not b64:
-        return None
-    try:
-        return b64decode(b64.encode("ascii"))
-    except Exception:
-        return None
-
-def _fallback_columns() -> Dict[str, Tuple[float, float]]:
-    return {
-        "left":  (16 * mm, 60 * mm),
-        "right": (84 * mm, 110 * mm),
-    }
-
-def _fallback_layout() -> List[Dict[str, Any]]:
-    return [
-        {"block_id": "decor_curve",  "col": "right", "data": {"radius_mm": 20, "bar_h_mm": 10, "color": "#EEF2F7"}},
-        {"block_id": "avatar_circle","col": "right", "data": {"max_d_mm": 46, "align": "right"}},
-        {"block_id": "header_name",  "col": "left",  "data": {"centered": False}},
-        {"block_id": "text_section", "col": "left",  "data": {"title": "", "rule": True}, "source": "summary"},
-        {"block_id": "key_skills",   "col": "right", "data": {"with_bars": True}},
-    ]
-
-def _resolve_layout_and_columns_from_inline(data: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, Tuple[float, float]]]:
-    li = (data or {}).get("layout_inline") or {}
-    layout = li.get("layout")
-    columns = li.get("columns")
-
-    # columns
-    if columns and isinstance(columns, dict):
-        cols_xy = {}
-        for key in ["left", "right"]:
-            col = columns.get(key) or {}
-            x = float(col.get("x_mm", 16.0)) * mm
-            w = float(col.get("w_mm", 60.0 if key == "left" else 110.0)) * mm
-            cols_xy[key] = (x, w)
-        cols = cols_xy if len(cols_xy) == 2 else _fallback_columns()
-    else:
-        cols = _fallback_columns()
-
-    # layout
-    if layout and isinstance(layout, list) and any(isinstance(it, dict) and it.get("block_id") for it in layout):
-        plan = layout
-    else:
-        plan = _fallback_layout()
-
-    return plan, cols
+# 🛡️ شبكة الأمان لتوحيد أسماء البلوكات (pprojects→projects…)
+from .block_aliases import canonicalize
 
 
-# ---------- الدالة الرئيسية (متوافقة مع واجهتين) ----------
+# ---------------------------------------------------------------------------
+# إعدادات الصفحة الافتراضية
+PAGE_W, PAGE_H = A4
+LEFT_MARGIN = 18 * mm
+RIGHT_MARGIN = 18 * mm
+TOP_MARGIN = 22 * mm
+BOTTOM_MARGIN = 18 * mm
+
+
+# ---------------------------------------------------------------------------
 def build_resume_pdf(
     data: Optional[Dict[str, Any]] = None,
     *,
-    # واجهة قديمة (يستعملها الراوت الحالي لديك)
     layout_plan: Optional[List[Dict[str, Any]]] = None,
     ready: Optional[Dict[str, Any]] = None,
     ui_lang: Optional[str] = None,
     rtl_mode: Optional[bool] = None,
-    theme: Optional[str] = None,   # يُتجاهل هنا (التلوين من الثيم غير مفعل في هذا الإصدار)
+    theme_name: Optional[str] = None,
+    theme: Optional[str] = None,  # back-compat: اسم الثيم القديم
 ) -> bytes:
     """
-    واجهتان مدعومتان:
-    1) الجديدة: build_resume_pdf(data={ "ui_lang":.., "rtl_mode":.., "profile":{...}, "layout_inline":{...} })
-    2) القديمة: build_resume_pdf(layout_plan=..., ready=..., ui_lang="en", rtl_mode=False)
+    🧾 يبني ملف PDF ويعيده على شكل bytes.
 
-    تُعيد bytes لملف PDF.
+    يمكن استدعاؤه بطريقتين:
+      1️⃣ عبر الواجهة الجديدة: data تحتوي ui_lang وrtl_mode وprofile (+ layout_inline)
+      2️⃣ عبر الواجهة القديمة: layout_plan وready تمرَّر مباشرة
+
+    - theme_name: اسم ملف JSON داخل مجلد themes/ بدون الامتداد.
     """
-    # -------- مسار الواجهة الجديدة --------
+
+    # توافق للخلفية مع الوسيط القديم
+    if theme and not theme_name:
+        theme_name = theme
+
+    # ---------------------------
+    # 📦 المسار الجديد (من واجهة Streamlit / الراوت الجديد)
+    # ---------------------------
     if data is not None:
         ui = (data.get("ui_lang") or UI_LANG)
         rtl = bool(data.get("rtl_mode"))
         profile = data.get("profile") or {}
 
-        # حوّل profile إلى ready كما تتوقع البلوكات
+        # ✅ تحميل وتطبيق الثيم
+        tn = theme_name or data.get("theme_name") or "default"
+        theme_dict = load_and_apply(tn)
+
+        # بناء البيانات الجاهزة للكتل
         rd = build_ready_from_profile(profile)
 
-        # دعم avatar inline إن وجد
-        avatar_bytes = _decode_avatar_from_profile(profile)
-        if avatar_bytes:
-            prev = rd.get("avatar_circle") or {}
-            rd["avatar_circle"] = {**prev, "photo_bytes": avatar_bytes}
-
-        # تخطيط وأعمدة (inline أو fallback)
+        # استخراج التخطيط والأعمدة (مع التطبيع)
         plan, cols = _resolve_layout_and_columns_from_inline(data)
-        return _render_pdf(plan, rd, ui_lang=ui, rtl_mode=rtl, columns=cols)
 
-    # -------- مسار الواجهة القديمة (المستخدمة حاليًا في الراوت) --------
-    # ui, rtl, plan, rd قادمة من الراوت
+        return _render_pdf(
+            plan,
+            rd,
+            ui_lang=ui,
+            rtl_mode=rtl,
+            columns=cols,
+            theme=theme_dict,
+        )
+
+    # ---------------------------
+    # 📦 المسار القديم (توافق)
+    # ---------------------------
     ui = ui_lang or UI_LANG
     rtl = bool(rtl_mode)
     rd = ready or {}
     plan = layout_plan or _fallback_layout()
     cols = _fallback_columns()
-    return _render_pdf(plan, rd, ui_lang=ui, rtl_mode=rtl, columns=cols)
+
+    # ✅ تحميل الثيم حتى في المسار القديم
+    tn = theme_name or "default"
+    theme_dict = load_and_apply(tn)
+
+    return _render_pdf(
+        plan,
+        rd,
+        ui_lang=ui,
+        rtl_mode=rtl,
+        columns=cols,
+        theme=theme_dict,
+    )
 
 
-# ---------- قلب الرسم ----------
+# ---------------------------------------------------------------------------
 def _render_pdf(
-    layout_plan: List[Dict[str, Any]],
+    layout_plan: List[Dict[str, Any]] | Dict[str, Any],
     ready: Dict[str, Any],
     *,
     ui_lang: str,
     rtl_mode: bool,
-    columns: Dict[str, Tuple[float, float]],  # {"left": (x,w), "middle": (x,w), "right": (x,w), ...}
+    columns: Dict[str, Tuple[float, float]],
+    theme: Optional[Dict[str, Any]] = None,
 ) -> bytes:
-    PAGE_W, PAGE_H = A4
-    top_margin = 16 * mm
-    bottom_margin = 16 * mm
+    """
+    يرسم كل الكتل داخل الصفحة بناءً على خطة التخطيط layout_plan
+    """
+
+    # --- تطبيع المدخل: لو وصل dict خذ منه "layout"، وحوّل النصوص إلى كائنات ---
+    if isinstance(layout_plan, dict):
+        layout_plan = layout_plan.get("layout", [])
+
+    fixed_plan: List[Dict[str, Any]] = []
+    for it in layout_plan or []:
+        if isinstance(it, dict) and it.get("block_id"):
+            fixed_plan.append(it)
+        elif isinstance(it, str) and it.strip():
+            fixed_plan.append({"block_id": it.strip()})
+        else:
+            print(f"[⚠️] Skipping invalid layout item in _render: {it!r}")
+
+    layout_plan = fixed_plan
+
+    # 🛡️ شبكة أمان وقت التشغيل: طبّق aliases (pprojects→projects، educatioon→education، …)
+    for it in layout_plan:
+        it["block_id"] = canonicalize(it["block_id"])
 
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
 
-    # حضّر Y لكل عمود ديناميكيًا
-    col_state: Dict[str, Dict[str, float]] = {}
-    for cid, (x, w) in columns.items():
-        col_state[cid] = {"x": x, "w": w, "y": PAGE_H - top_margin}
-
+    # إعداد السياق العام للصفحة
     ctx: RenderContext = {
         "ui_lang": ui_lang,
         "rtl_mode": rtl_mode,
-        "page_top_y": PAGE_H - top_margin,
+        "page_top_y": PAGE_H - TOP_MARGIN,
         "page_h": PAGE_H,
+        "theme": theme or {},
+        # يمكنك إضافة مفاتيح أخرى من التخطيط (frames/page) إن رغبت لاحقًا
     }
 
-    for item in (layout_plan or []):
-        bid = (item or {}).get("block_id")
-        cid = (item or {}).get("col") or "right"  # اسم العمود المطلوب
-        custom = (item or {}).get("data") or {}
-        if not bid:
-            continue
-
-        # احصل على بلوك
+    # تنفيذ الكتل واحدة تلو الأخرى حسب الخطة
+    for block_conf in layout_plan:
         try:
-            block = get_block(bid)  # instance من registry
-        except KeyError:
+            block_id = block_conf.get("block_id")
+            block = get_block(block_id)
+
+            frame_dict = block_conf.get("frame") or {}
+            frame = Frame(
+                x=float(frame_dict.get("x", LEFT_MARGIN)),
+                y=float(frame_dict.get("y", PAGE_H - TOP_MARGIN)),
+                w=float(frame_dict.get("w", PAGE_W - LEFT_MARGIN - RIGHT_MARGIN)),
+            )
+
+            # بيانات البلوك: من ready أولاً ثم من layout_conf
+            block_data = ready.get(block_id) or block_conf.get("data") or {}
+
+            # رسم البلوك فعليًا
+            new_y = block.render(c, frame, block_data, ctx)
+
+            # تحديث y في حال استخدم لاحقًا
+            frame.y = new_y
+
+        except Exception as e:
+            print(f"[⚠️] Block '{block_conf.get('block_id') if isinstance(block_conf, dict) else block_conf}' failed: {e}")
             continue
 
-        # بيانات البلوك: ready + تخصيص layout
-        base_data = ready.get(bid) or {}
-        block_data = {**base_data, **custom} if custom else base_data
-
-        # اختَر عمودًا: لو غير موجود، اسقط على "right" أو أول عمود متاح
-        if cid not in col_state:
-            cid = "right" if "right" in col_state else next(iter(col_state))
-
-        x, w, y = col_state[cid]["x"], col_state[cid]["w"], col_state[cid]["y"]
-        frame = Frame(x=x, y=y, w=w)
-        new_y = block.render(c, frame, block_data, ctx)
-
-        # حدّث Y للعمود مع احترام الحد الأدنى
-        col_state[cid]["y"] = max(bottom_margin, new_y)
-
+    # إنهاء الصفحة
     c.showPage()
     c.save()
-    pdf_bytes = buf.getvalue()
-    buf.close()
-    return pdf_bytes
+    return buf.getvalue()
 
+
+# ---------------------------------------------------------------------------
+# 🧱 أدوات داخلية (للتوافق مع نظام التخطيط)
+# ---------------------------------------------------------------------------
+
+def _resolve_layout_and_columns_from_inline(data: Dict[str, Any]):
+    """
+    يحدّد التخطيط من البيانات القادمة من الراوت.
+    يدعم:
+      - data["layout_inline"] كـ dict يحتوي "layout"/"frames"/"page"
+      - أو كـ list مباشرة
+    ويُعيد دائمًا قائمة layout مناسبة للرسم.
+    """
+    li = data.get("layout_inline")
+    if li is None:
+        # لا يوجد تخطيط: استخدم الاحتياطي
+        plan = _fallback_layout()
+        cols = _fallback_columns()
+        return plan, cols
+
+    # إذا جاء كـ dict: استخرج القائمة من "layout"
+    if isinstance(li, dict):
+        plan = li.get("layout") or []
+    elif isinstance(li, list):
+        plan = li
+    else:
+        plan = _fallback_layout()
+
+    # طبيع (normalize): حوّل العناصر النصية إلى dict block_id
+    norm_plan: List[Dict[str, Any]] = []
+    for it in plan:
+        if isinstance(it, dict) and it.get("block_id"):
+            norm_plan.append(it)
+        elif isinstance(it, str) and it.strip():
+            norm_plan.append({"block_id": it.strip()})
+        else:
+            # تجاهل المدخل غير الصالح
+            print(f"[⚠️] Skipping invalid layout item in _resolve: {it!r}")
+
+    # 🛡️ طبّق aliases مبكرًا أيضًا (حماية مزدوجة)
+    for it in norm_plan:
+        it["block_id"] = canonicalize(it["block_id"])
+
+    cols = _fallback_columns()
+    return norm_plan, cols
+
+
+def _fallback_layout() -> List[Dict[str, Any]]:
+    """
+    تخطيط احتياطي بسيط في حال غياب ملف layout.
+    """
+    return [
+        {
+            "block_id": "header_name",
+            "frame": {"x": LEFT_MARGIN, "y": PAGE_H - TOP_MARGIN, "w": PAGE_W - LEFT_MARGIN - RIGHT_MARGIN},
+            "data": {"centered": True, "highlight_bg": "#E0F2FE", "box_h_mm": 30},
+        },
+        {"block_id": "key_skills", "frame": {"x": LEFT_MARGIN, "y": PAGE_H - 60 * mm, "w": 80 * mm}},
+        {"block_id": "projects", "frame": {"x": 110 * mm, "y": PAGE_H - 60 * mm, "w": 85 * mm}},
+    ]
+
+
+def _fallback_columns() -> Dict[str, Tuple[float, float]]:
+    """
+    يحدّد أعمدة احتياطية (عمودين).
+    """
+    total_w = PAGE_W - LEFT_MARGIN - RIGHT_MARGIN
+    left_w = total_w * 0.4
+    right_w = total_w * 0.55
+    return {
+        "left": (LEFT_MARGIN, left_w),
+        "right": (LEFT_MARGIN + left_w + 5 * mm, right_w),
+    }

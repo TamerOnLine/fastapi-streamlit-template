@@ -1,0 +1,63 @@
+{
+  "page": {
+    "margins_mm": {
+      "top": 18,
+      "right": 18,
+      "bottom": 18,
+      "left": 18
+    }
+  },
+  "columns": [
+    {
+      "id": "main",
+      "flex": 1
+    }
+  ],
+  "layout": [
+    {
+      "block_id": "header_name",
+      "col": "main",
+      "data": {
+        "centered": false,
+        "highlight_bg": null,
+        "box_h_mm": 0
+      }
+    },
+    {
+      "block_id": "links_inline",
+      "col": "main",
+      "data": {
+        "items_key": "contact",
+        "accent": "#0A7D55"
+      }
+    },
+    {
+      "block_id": "text_section",
+      "col": "main",
+      "data": {
+        "thick": 1
+      }
+    },
+    {
+      "block_id": "text_section",
+      "col": "main",
+      "source": "summary"
+    },
+    {
+      "block_id": "experience",
+      "col": "main"
+    },
+    {
+      "block_id": "education",
+      "col": "main"
+    },
+    {
+      "block_id": "key_skills",
+      "col": "main"
+    },
+    {
+      "block_id": "text_section",
+      "col": "main"
+    }
+  ]
+}

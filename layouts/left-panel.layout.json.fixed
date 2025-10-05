@@ -1,0 +1,77 @@
+{
+  "page": {
+    "margins_mm": {
+      "top": 16,
+      "right": 16,
+      "bottom": 16,
+      "left": 16
+    }
+  },
+  "columns": [
+    {
+      "id": "left",
+      "w_mm": 66,
+      "gap_right_mm": 10
+    },
+    {
+      "id": "right",
+      "flex": 1
+    }
+  ],
+  "layout": [
+    {
+      "block_id": "decor_curve",
+      "col": "right",
+      "data": {
+        "radius_mm": 20,
+        "bar_h_mm": 10,
+        "color": "#EEF2F7"
+      }
+    },
+    {
+      "block_id": "avatar_circle",
+      "col": "right",
+      "data": {
+        "max_d_mm": 46,
+        "align": "right"
+      }
+    },
+    {
+      "block_id": "header_name",
+      "col": "left",
+      "data": {
+        "centered": false,
+        "highlight_bg": null,
+        "box_h_mm": 0
+      }
+    },
+    {
+      "block_id": "text_section",
+      "col": "left",
+      "source": "summary",
+      "data": {
+        "title": "",
+        "rule": true
+      }
+    },
+    {
+      "block_id": "projects",
+      "col": "left"
+    },
+    {
+      "block_id": "contact_info",
+      "col": "right"
+    },
+    {
+      "block_id": "languages",
+      "col": "right"
+    },
+    {
+      "block_id": "key_skills",
+      "col": "right",
+      "data": {
+        "with_bars": true
+      }
+    }
+  ]
+}

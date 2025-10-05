@@ -37,17 +37,23 @@
     {
       "block_id": "left_panel_bg",
       "col": "left",
-      "data": { "pad_mm": 2 }
+      "data": {
+        "pad_mm": 2
+      }
     },
     {
       "block_id": "left_panel_bg",
       "col": "middle",
-      "data": { "pad_mm": 2 }
+      "data": {
+        "pad_mm": 2
+      }
     },
     {
       "block_id": "left_panel_bg",
       "col": "right",
-      "data": { "pad_mm": 2 }
+      "data": {
+        "pad_mm": 2
+      }
     },
     {
       "block_id": "header_name",
@@ -58,16 +64,42 @@
         "box_h_mm": 28
       }
     },
-    { "block_id": "projects",  "col": "right" },
-    { "block_id": "education", "col": "right" },
-
-    { "block_id": "avatar_circle", "col": "left", "data": { "max_d_mm": 42 } },
-    { "block_id": "contact_info",  "col": "left" },
-    { "block_id": "social_links",  "col": "left" },
-    { "block_id": "languages",     "col": "left" },
-
-    { "block_id": "key_skills",    "col": "middle" },
-    { "block_id": "text_section",  "col": "middle", "source": "summary" }
+    {
+      "block_id": "projects",
+      "col": "right"
+    },
+    {
+      "block_id": "education",
+      "col": "right"
+    },
+    {
+      "block_id": "avatar_circle",
+      "col": "left",
+      "data": {
+        "max_d_mm": 42
+      }
+    },
+    {
+      "block_id": "contact_info",
+      "col": "left"
+    },
+    {
+      "block_id": "social_links",
+      "col": "left"
+    },
+    {
+      "block_id": "languages",
+      "col": "left"
+    },
+    {
+      "block_id": "key_skills",
+      "col": "middle"
+    },
+    {
+      "block_id": "text_section",
+      "col": "middle",
+      "source": "summary"
+    }
   ],
   "defaults": {
     "ui_lang": "en",
