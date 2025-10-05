@@ -1,4 +1,4 @@
-# 🧾 fastapi-streamlit-templet
+# 🧾 fastapi-streamlit-templale
 
 An interactive **Resume Builder** built with **FastAPI** (backend) and **Streamlit** (frontend).  
 Generates modern, two-column resumes with full **Arabic (RTL)** support, dynamic themes, and editable sections.
