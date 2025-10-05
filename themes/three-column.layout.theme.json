@@ -1,0 +1,28 @@
+{
+  "layout_name": "three-column.layout",
+  "description": "Three-column professional layout for Aqua Card theme.",
+  "page": {
+    "size": "A4",
+    "margin_mm": [15, 15, 15, 15]
+  },
+
+  "frames": {
+    "col1": { "x_mm": 15, "y_mm": 35, "w_mm": 60, "h_mm": 240 },
+    "col2": { "x_mm": 80, "y_mm": 35, "w_mm": 60, "h_mm": 240 },
+    "col3": { "x_mm": 145, "y_mm": 35, "w_mm": 60, "h_mm": 240 },
+    "header": { "x_mm": 15, "y_mm": 275, "w_mm": 190, "h_mm": 20 }
+  },
+
+  "layout_blocks": [
+    { "frame": "header", "block_id": "header_name" },
+
+    { "frame": "col1", "block_id": "contact_info" },
+    { "frame": "col1", "block_id": "languages" },
+
+    { "frame": "col2", "block_id": "key_skills" },
+    { "frame": "col2", "block_id": "education" },
+
+    { "frame": "col3", "block_id": "projects" },
+    { "frame": "col3", "block_id": "social_links" }
+  ]
+}

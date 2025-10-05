@@ -1,60 +1,109 @@
 # api/routes/generate_form.py
 from __future__ import annotations
-
 import json
+from pathlib import Path
 from typing import Any, Dict
+from fastapi import APIRouter, Request, Response, UploadFile, File, Form, HTTPException
 
-from fastapi import APIRouter, Request, Response
-from charset_normalizer import from_bytes
-
-# واجهة البناء الرئيسية (مصدّرة من api/pdf_utils/__init__.py)
-from api.pdf_utils import build_resume_pdf
-
-# لودر الثيم (يرجع dict فيه layout/columns/page/defaults)
-from api.pdf_utils.themes import _build_layout_inline_from_theme
-
-# أدوات تفكيك النصوص والمشاريع لفرع multipart
-from api.pdf_utils.utils import _split_lines, _parse_projects
-
+from ..schemas import GeneratePayload
+from ..pdf_utils.resume import build_resume_pdf
 
 router = APIRouter()
 
+# ─────────────────────────────
+# إعداد المسارات
+# ─────────────────────────────
+THEMES_DIR = Path("themes")
+LAYOUTS_DIR = Path("layouts")
 
-def _normalize_json_body(raw: bytes) -> Dict[str, Any]:
-    """
-    يحاول قراءة JSON من raw bytes:
-      - أولاً UTF-8
-      - ثم auto-detect عبر charset-normalizer
-    """
+# ─────────────────────────────
+# دوال مساعدة
+# ─────────────────────────────
+def _normalize_json_body(raw: bytes) -> dict:
     try:
         return json.loads(raw.decode("utf-8"))
-    except UnicodeDecodeError:
-        print("⚠️ Non-UTF8 JSON detected; attempting auto-detect...")
-        best = from_bytes(raw).best()
-        if not best:
-            raise ValueError("Unable to decode request body to JSON.")
-        # best.strike() أو str(best) يعيد النص بعد التصحيح
-        return json.loads(str(best))
+    except Exception:
+        return {}
+
+def _load_layout_inline(layout_name: str) -> dict | None:
+    """تحميل layouts/<layout>.json وإرجاع frames + layout_blocks في صيغة inline."""
+    if not layout_name:
+        return None
+    path = LAYOUTS_DIR / f"{layout_name}.json"
+    if not path.exists():
+        print(f"⚠️ layout not found: {path}")
+        return None
+
+    try:
+        j = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"⚠️ failed to parse layout {path}: {e}")
+        return None
+
+    frames = j.get("frames") or {}
+    blocks = j.get("layout_blocks") or []
+
+    # تطبيع الكتل إلى قائمة كائنات {block_id, frame?, data?}
+    norm = []
+    for b in blocks:
+        if isinstance(b, str):
+            norm.append({"block_id": b})
+        elif isinstance(b, dict):
+            item = {"block_id": b.get("block_id")}
+            if "frame" in b:
+                item["frame"] = b["frame"]
+            if "data" in b:
+                item["data"] = b["data"]
+            norm.append(item)
+
+    inline = {"frames": frames, "layout": norm}
+    if "page" in j:
+        inline["page"] = j["page"]
+    return inline
 
 
+def _build_layout_inline_from_theme(theme_name: str) -> dict:
+    """
+    تحميل الثيم theme.json وإرجاع التخطيط inline الافتراضي الموجود داخله.
+    """
+    path = THEMES_DIR / f"{theme_name}.json"
+    if not path.exists():
+        print(f"⚠️ theme not found: {path}")
+        return {}
+    try:
+        theme = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"⚠️ failed to parse theme {path}: {e}")
+        return {}
+
+    frames = theme.get("frames") or {}
+    layout = theme.get("layout_blocks") or []
+    norm = []
+    for b in layout:
+        if isinstance(b, str):
+            norm.append({"block_id": b})
+        elif isinstance(b, dict):
+            norm.append(b)
+    inline = {"frames": frames, "layout": norm, "page": theme.get("page")}
+    return inline
+
+
+# ─────────────────────────────
+# المسار الرئيسي
+# ─────────────────────────────
 @router.post("/generate-form")
-async def generate_form(request: Request) -> Response:
+async def generate_form(request: Request):
     """
-    نقطة إنشاء ملف PDF من بيانات JSON (أو نموذج form).
-    - تدعم application/json (بأي ترميز شائع، مع auto-detect)
-    - وتدعم multipart/form-data
-    ترجع: application/pdf
+    نقطة النهاية لتوليد PDF.
+    تدعم application/json و multipart/form-data.
     """
-    ct = (request.headers.get("content-type") or "").lower()
-
-    # ==============================
-    # 1) application/json
-    # ==============================
+    ct = request.headers.get("content-type", "")
     if "application/json" in ct:
         raw = await request.body()
         body = _normalize_json_body(raw)
 
         theme_name = (body.get("theme_name") or "default").strip()
+        layout_name = (body.get("layout_name") or "").strip()
 
         data: Dict[str, Any] = {
             "ui_lang": body.get("ui_lang") or "en",
@@ -63,66 +112,85 @@ async def generate_form(request: Request) -> Response:
             "theme_name": theme_name,
         }
 
-        # حمّل الثيم كـ inline plan (layout/columns/page/defaults)
+        # تحميل الثيم
         theme_inline = _build_layout_inline_from_theme(theme_name)
-        if theme_inline:
+
+        # دمج اللاياوت إن وُجد
+        layout_inline = _load_layout_inline(layout_name) if layout_name else None
+        if layout_inline:
+            print(f">> [layouts] loaded: {layout_name}.json")
+            merged_inline = dict(theme_inline)
+            if layout_inline.get("frames"):
+                merged_inline["frames"] = layout_inline["frames"]
+            if layout_inline.get("layout"):
+                merged_inline["layout"] = layout_inline["layout"]
+            if layout_inline.get("page"):
+                merged_inline["page"] = layout_inline["page"]
+            data["layout_inline"] = merged_inline
+        else:
             data["layout_inline"] = theme_inline
 
-        # لوج للتشخيص
-        blocks = [b.get("block_id") for b in (theme_inline.get("layout") or [])]
+        # لوج واضح
+        blocks = [
+            (b if isinstance(b, str) else b.get("block_id"))
+            for b in (data["layout_inline"].get("layout") or [])
+        ]
+        print(f">> [themes] loaded: {theme_name}.json")
         print(f">> 🧩 Using theme: {theme_name}")
+        if layout_name:
+            print(f">> [layouts] active: {layout_name}.json")
         print(f">> Layout blocks: {blocks}")
 
         pdf_bytes = build_resume_pdf(data=data)
         return Response(content=pdf_bytes, media_type="application/pdf")
 
-    # ==============================
-    # 2) multipart/form-data
-    # ==============================
+    # ───────────── دعم multipart ─────────────
     form = await request.form()
+    profile_json = form.get("profile")
+    if not profile_json:
+        raise HTTPException(status_code=400, detail="Missing 'profile' field in form data.")
 
-    name = str(form.get("name") or "")
-    title = str(form.get("title") or "Backend Developer")
-    email = str(form.get("email") or "")
-    phone = str(form.get("phone") or "")
-    github = str(form.get("github") or "")
-    linkedin = str(form.get("linkedin") or "")
-    location = str(form.get("location") or "")
-    skills_text = str(form.get("skills_text") or "")
-    languages_text = str(form.get("languages_text") or "")
-    projects_text = str(form.get("projects_text") or "")
-    sections_right_text = str(form.get("sections_right_text") or "")
-    rtl_mode = str(form.get("rtl_mode") or "false").lower() == "true"
-    theme_name = (str(form.get("theme_name") or "default")).strip()
+    try:
+        profile = json.loads(profile_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid 'profile' JSON.")
 
-    profile: Dict[str, Any] = {
-        "header": {"name": name, "title": title},
-        "contact": {
-            "email": email,
-            "phone": phone,
-            "github": github,
-            "linkedin": linkedin,
-            "location": location,
-        },
-        "skills": _split_lines(skills_text),
-        "languages": _split_lines(languages_text),
-        "projects": _parse_projects(_split_lines(projects_text)),
-        "summary": _split_lines(sections_right_text),
-    }
+    theme_name = (form.get("theme_name") or "default").strip()
+    layout_name = (form.get("layout_name") or "").strip()
+    ui_lang = form.get("ui_lang") or "en"
+    rtl_mode = form.get("rtl_mode", "false").lower() in ("true", "1", "yes")
 
     data: Dict[str, Any] = {
-        "ui_lang": "en",
+        "ui_lang": ui_lang,
         "rtl_mode": rtl_mode,
         "profile": profile,
         "theme_name": theme_name,
     }
 
+    # تحميل الثيم + اللاياوت
     theme_inline = _build_layout_inline_from_theme(theme_name)
-    if theme_inline:
+    layout_inline = _load_layout_inline(layout_name) if layout_name else None
+    if layout_inline:
+        print(f">> [layouts] loaded: {layout_name}.json")
+        merged_inline = dict(theme_inline)
+        if layout_inline.get("frames"):
+            merged_inline["frames"] = layout_inline["frames"]
+        if layout_inline.get("layout"):
+            merged_inline["layout"] = layout_inline["layout"]
+        if layout_inline.get("page"):
+            merged_inline["page"] = layout_inline["page"]
+        data["layout_inline"] = merged_inline
+    else:
         data["layout_inline"] = theme_inline
 
-    blocks = [b.get("block_id") for b in (theme_inline.get("layout") or [])]
+    blocks = [
+        (b if isinstance(b, str) else b.get("block_id"))
+        for b in (data["layout_inline"].get("layout") or [])
+    ]
+    print(f">> [themes] loaded: {theme_name}.json")
     print(f">> 🧩 Using theme: {theme_name}")
+    if layout_name:
+        print(f">> [layouts] active: {layout_name}.json")
     print(f">> Layout blocks: {blocks}")
 
     pdf_bytes = build_resume_pdf(data=data)

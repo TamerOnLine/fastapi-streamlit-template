@@ -61,3 +61,24 @@ def encode_photo_to_b64(
 
 def decode_photo_from_b64(photo_b64: str, photo_mime: Optional[str]) -> bytes:
     return base64.b64decode(photo_b64.encode("ascii"))
+
+# ─────────────────────────────
+# Themes & Layouts listing
+# ─────────────────────────────
+from pathlib import Path
+
+def list_theme_names(themes_dir: str = "themes") -> list[str]:
+    """Return sorted list of theme names (without .json extension)."""
+    p = Path(themes_dir)
+    return sorted(
+        f.stem  # e.g. "aqua-card-3col.theme"
+        for f in p.glob("*.theme.json")
+    )
+
+def list_layout_names(layouts_dir: str = "layouts") -> list[str]:
+    """Return sorted list of layout names (without .json extension)."""
+    p = Path(layouts_dir)
+    return sorted(
+        f.stem  # e.g. "three-column.layout"
+        for f in p.glob("*.layout.json")
+    )
