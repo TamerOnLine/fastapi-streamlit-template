@@ -1,29 +1,27 @@
-# api/routes/generate_form.py
-from __future__ import annotations
+# داخل generate_form.py
 
-from typing import Optional, Any, Dict, List, Tuple
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
+from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
+from pathlib import Path
+import json
 
-from api.pdf_utils import build_resume_pdf
+from api.pdf_utils.theme_loader import load_theme, apply_style_overrides
+from api.pdf_utils.resume import build_resume_pdf
+from api.pdf_utils.layout_utils import merge_layout
+from api.pdf_utils.data_utils import build_ready_from_profile
 from api.utils.parsers import (
-    parse_csv_or_lines,
-    normalize_language_level,
-    parse_projects_blocks,
-    parse_education_blocks,
-    parse_sections_text,
+    parse_csv_or_lines, normalize_language_level,
+    parse_projects_blocks, parse_education_blocks, parse_sections_text
 )
 
-# الثيمات الديناميكية
-from api.pdf_utils.theme_loader import load_theme, apply_style_overrides
-
+PROFILES_DIR = Path("profiles")
+LAYOUTS_DIR  = Path("layouts")
 router = APIRouter()
-
 
 @router.post("/generate-form")
 async def generate_form(
     request: Request,
-    # --- Basic info (Form fields) ---
+    # أوضاع form التقليدية (تبقى تعمل)
     name: str = Form(""),
     location: str = Form(""),
     phone: str = Form(""),
@@ -38,107 +36,108 @@ async def generate_form(
     skills_text: str = Form(""),
     languages_text: str = Form(""),
     rtl_mode: str = Form("false"),
-    theme_name: str = Form("default"),
-    # --- Optional image upload ---
-    photo: Optional[UploadFile] = File(None),
+    theme_name: str = Form("modern"),
+    # اختيار ملفات بالاسم (وضع الملفات)
+    profile_name: str = Form("tamer.profile"),
+    layout_name: str = Form("left-panel.layout"),
+    # صورة اختيارية
+    photo: UploadFile | None = File(None),
 ):
-    """
-    يستقبل بيانات الـ Form من Streamlit ويحوّلها إلى layout_plan
-    بناءً على ملف الثيم (themes/*.theme.json)
-    ثم يولّد PDF عبر نظام الكتل الجديد.
-    """
+    content_type = request.headers.get("content-type","").lower()
 
-    # -------- قراءة الصورة --------
-    photo_bytes: Optional[bytes] = await photo.read() if photo else None
+    # ---- وضع JSON: payload = { profile, layout_inline?, theme_name?, ui_lang?, rtl_mode? } ----
+    if content_type.startswith("application/json"):
+        payload = await request.json()
+        profile = payload.get("profile") or {}
+        if not profile:
+            raise HTTPException(400, "JSON must include `profile`.")
+        layout_inline = payload.get("layout_inline")
+        theme = load_theme(payload.get("theme_name") or theme_name)
+        apply_style_overrides(theme.get("style") or {})
 
-    # -------- تحليل الحقول النصية --------
-    skills = parse_csv_or_lines(skills_text)
-    languages = [normalize_language_level(x) for x in parse_csv_or_lines(languages_text)]
-    projects_tuples: List[Tuple[str, str, str | None]] = parse_projects_blocks(projects_text)
-    education_items: List[str] = parse_education_blocks(education_text)
-    sections_left = parse_sections_text(sections_left_text)
-    sections_right = parse_sections_text(sections_right_text)
+        ready = build_ready_from_profile(profile)
+        layout_plan = merge_layout((layout_inline or {}).get("layout", []), ready) \
+                      if layout_inline else []
 
-    # -------- تحميل الثيم وتطبيق الستايل --------
+        # لو ما فيه layout_inline، خذ layout من theme لو موجود أو من ملف باسم مرسل
+        if not layout_plan:
+            # جرّب ملف layout_name إن وجد
+            layout_path = LAYOUTS_DIR / f"{payload.get('layout_name', layout_name)}.json"
+            if layout_path.exists():
+                layout = json.loads(layout_path.read_text(encoding="utf-8"))
+                layout_plan = merge_layout(layout.get("layout") or [], ready)
+                theme["page"]    = layout.get("page")    or theme.get("page")    or {}
+                theme["columns"] = layout.get("columns") or theme.get("columns") or {}
+            else:
+                # أخيرًا: fallback إلى theme.layout إن موجود
+                layout_plan = merge_layout(theme.get("layout") or [], ready)
+
+        ui = (payload.get("ui_lang") or theme.get("defaults", {}).get("ui_lang") or "en").lower()
+        rtl = bool(payload.get("rtl_mode", False)) or bool(theme.get("defaults", {}).get("rtl_mode"))
+
+        pdf = build_resume_pdf(layout_plan=layout_plan, ui_lang=ui, rtl_mode=rtl, theme=theme)
+        return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                                 headers={"Content-Disposition": 'inline; filename=resume.pdf'})
+
+    # ---- وضع الملفات بالأسماء: profile_name + layout_name ----
+    profile_path = PROFILES_DIR / f"{profile_name}.json"
+    layout_path  = LAYOUTS_DIR  / f"{layout_name}.json"
+
+    ready = None
+    if profile_path.exists():
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        ready = build_ready_from_profile(profile)
+
     theme = load_theme(theme_name)
     apply_style_overrides(theme.get("style") or {})
 
-    # -------- إعداد البيانات الجاهزة لكل Block --------
-    contact_items: Dict[str, str] = {}
-    if location.strip():
-        contact_items["location"] = location.strip()
-    if phone.strip():
-        contact_items["phone"] = phone.strip()
-    if email.strip():
-        contact_items["email"] = email.strip()
-    if birthdate.strip():
-        contact_items["birthdate"] = birthdate.strip()
-    if github.strip():
-        contact_items["github"] = github.strip()
-    if linkedin.strip():
-        contact_items["linkedin"] = linkedin.strip()
+    layout_plan = []
+    if layout_path.exists():
+        layout = json.loads(layout_path.read_text(encoding="utf-8"))
+        layout_plan = merge_layout(layout.get("layout") or [], ready or {})
+        theme["page"]    = layout.get("page")    or theme.get("page")    or {}
+        theme["columns"] = layout.get("columns") or theme.get("columns") or {}
 
-    social: Dict[str, str] = {}
-    if github.strip():
-        social["github"] = github.strip()
-    if linkedin.strip():
-        social["linkedin"] = linkedin.strip()
+    # ---- fallback أخير: form التقليدي (كما كان من قبل) ----
+    if not ready:
+        photo_bytes = await photo.read() if photo else None
+        skills = parse_csv_or_lines(skills_text)
+        languages = [normalize_language_level(x) for x in parse_csv_or_lines(languages_text)]
+        projects = parse_projects_blocks(projects_text)
+        education = parse_education_blocks(education_text)
+        left_sections = parse_sections_text(sections_left_text)
+        right_sections = parse_sections_text(sections_right_text)
 
-    ready: dict[str, Any] = {
-        "header_name": {"name": name.strip()},
-        "avatar_circle": {"photo_bytes": photo_bytes, "max_d_mm": 42},
-        "contact_info": {"items": contact_items},
-        "key_skills": {"skills": skills},
-        "languages": {"languages": languages},
-        "social_links": {**social},
-        "projects": {"items": projects_tuples, "title": None},
-        "education": {"items": education_items, "title": None},
-        # summary أو النصوص الحرة من العمود الأيمن
-        "text_section:summary": {
-            "title": "",
-            "lines": [ln for sec in sections_right for ln in (sec.get("lines") or [])],
-        },
-    }
+        contact = {}
+        if location.strip(): contact["location"] = location.strip()
+        if phone.strip():    contact["phone"] = phone.strip()
+        if email.strip():    contact["email"] = email.strip()
+        if github.strip():   contact["github"] = github.strip()
+        if linkedin.strip(): contact["linkedin"] = linkedin.strip()
+        if birthdate.strip():contact["birthdate"] = birthdate.strip()
 
-    # -------- إنشاء layout_plan من ملف الثيم --------
-    layout_plan: List[Dict[str, Any]] = []
+        ready = {
+            "header_name": {"name": name.strip()},
+            "avatar_circle": {"photo_bytes": photo_bytes, "max_d_mm": 42},
+            "contact_info": {"items": contact},
+            "key_skills": {"skills": skills},
+            "languages": {"languages": languages},
+            "social_links": {k:v for k,v in contact.items() if k in {"github","linkedin","website","site","url","twitter","x"}},
+            "projects": {"items": projects, "title": None},
+            "education": {"items": education, "title": None},
+            "text_section:summary": {"title": "", "lines": [ln for sec in right_sections for ln in (sec.get("lines") or [])]},
+        }
 
-    for item in (theme.get("layout") or []):
-        bid = item.get("block_id")
-        frame = item.get("frame", "right")
-        src = item.get("source")
-        data_override = item.get("data") or {}
+        # إن لم نجد layout ملف/inline، استعمل theme.layout
+        if not layout_plan:
+            layout_plan = merge_layout(theme.get("layout") or [], ready)
 
-        if not bid:
-            continue
-
-        data_key = f"{bid}:{src}" if src else bid
-        data = ready.get(data_key) or ready.get(bid) or {}
-        merged = {**data, **data_override} if data_override else data
-
-        # تخطي البلوكات الفارغة (باستثناء الاسم)
-        if bid != "header_name":
-            if not any(bool(v) for v in merged.values()):
-                continue
-
-        layout_plan.append({"block_id": bid, "frame": frame, "data": merged})
+    rtl = (rtl_mode.strip().lower() == "true") or bool(theme.get("defaults", {}).get("rtl_mode"))
+    ui  = (theme.get("defaults", {}).get("ui_lang") or ("ar" if rtl else "en")).lower()
 
     if not layout_plan:
-        raise HTTPException(status_code=400, detail=f"No content to render for theme='{theme_name}'")
+        raise HTTPException(400, "No layout provided (no layout file, no theme.layout, no JSON).")
 
-    # -------- إعدادات اللغة والاتجاه --------
-    rtl = (rtl_mode or "").strip().lower() == "true" or bool(theme.get("defaults", {}).get("rtl_mode"))
-    ui_lang = (theme.get("defaults", {}).get("ui_lang") or ("ar" if rtl else "en")).lower()
-
-    # -------- توليد ملف الـ PDF --------
-    try:
-        pdf_bytes = build_resume_pdf(layout_plan=layout_plan, ui_lang=ui_lang, rtl_mode=rtl, theme=theme)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
-
-    # -------- إعادة النتيجة --------
-    return StreamingResponse(
-        iter([pdf_bytes]),
-        media_type="application/pdf",
-        headers={"Content-Disposition": 'inline; filename="resume.pdf"'},
-    )
+    pdf = build_resume_pdf(layout_plan=layout_plan, ui_lang=ui, rtl_mode=rtl, theme=theme)
+    return StreamingResponse(iter([pdf]), media_type="application/pdf",
+                             headers={"Content-Disposition": 'inline; filename=resume.pdf'})

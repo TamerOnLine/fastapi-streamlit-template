@@ -12,4 +12,8 @@ from . import (
     education,
     text_section,
     social_links,
+    decor_curve,
+    header_bar,
+    links_inline,
+    skills_grid,
 )  # noqa: F401
