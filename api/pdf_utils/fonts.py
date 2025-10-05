@@ -1,131 +1,73 @@
-"""
-Font utility module for PDF generation.
-Includes support for registering Arabic and symbol fonts with fallback options.
-"""
-
 from __future__ import annotations
-
-from pathlib import Path
-import platform
-
+from importlib.resources import files
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
-from .paths import ASSETS
+# ============================================================
+# 🧩 مسارات ملفات الخطوط داخل الحزمة
+# ============================================================
+ASSETS = files("api.pdf_utils.assets")
+FONT_PATH_NOTO = ASSETS / "NotoNaskhArabic-Regular.ttf"
+FONT_PATH_AMIRI = ASSETS / "Amiri-Regular.ttf"   # قد تكون AmiriQuran حسب ما تم تنزيله
 
-# Optional RTL support
-try:
-    import arabic_reshaper
-    from bidi.algorithm import get_display
-    AR_OK = True
-except Exception:
-    AR_OK = False
+# ============================================================
+# 🎨 أسماء الخطوط داخل ReportLab
+# ============================================================
+AR_FONT = "NotoNaskhArabic"
+AR_FONT_FALLBACK = "Amiri"
 
-
-def rtl(txt: str) -> str:
+# ============================================================
+# 🧠 دوال مساعدة
+# ============================================================
+def rtl(text: str) -> str:
     """
-    Reshapes and reorders Arabic text for correct RTL display if supported.
-
-    Args:
-        txt (str): Input text.
-
-    Returns:
-        str: Reshaped and reordered text, or original if RTL support is unavailable.
+    واجهة مطلوبة من text.py.
+    حالياً تُعيد النص كما هو (بدون تشكيل/إعادة ترتيب).
+    لاحقاً يمكن تفعيل arabic_reshaper + python-bidi إن رغبت.
     """
-    if not txt:
-        return ""
-    if AR_OK:
-        return get_display(arabic_reshaper.reshape(txt))
-    return txt
+    return text or ""
 
+def _register_ttf_font(name: str, path_str: str) -> None:
+    pdfmetrics.registerFont(TTFont(name, path_str))
 
-def register_font_safe(path: Path, name: str, fallback: str = "Helvetica") -> str:
+# ============================================================
+# ⚙️ تسجيل الخطوط مع fallback آمن
+# ============================================================
+def ensure_fonts() -> None:
     """
-    Registers a TrueType font with a fallback in case of failure.
-
-    Args:
-        path (Path): Path to the font file.
-        name (str): Name to register the font as.
-        fallback (str): Fallback font name.
-
-    Returns:
-        str: Registered font name or fallback.
+    نسجّل خط Noto Naskh أولاً، ثم Amiri كبديل.
+    لو فشل الاثنان، نستخدم خطاً مدمجاً في ReportLab لضمان عدم تعطل السيرفر.
     """
+    global AR_FONT
+
+    # جرّب Noto Naskh
     try:
-        if path and path.is_file():
-            pdfmetrics.registerFont(TTFont(name, str(path)))
-            return name
-    except Exception:
-        pass
-    return fallback
+        _register_ttf_font(AR_FONT, str(FONT_PATH_NOTO))
+        print(f"✅ Registered Arabic font: {AR_FONT}")
+        return
+    except Exception as e:
+        print(f"⚠️ Failed to register {AR_FONT}: {e}")
 
+    # جرّب Amiri
+    try:
+        _register_ttf_font(AR_FONT_FALLBACK, str(FONT_PATH_AMIRI))
+        AR_FONT = AR_FONT_FALLBACK
+        print(f"✅ Fallback font registered: {AR_FONT_FALLBACK}")
+        return
+    except Exception as e:
+        print(f"⚠️ Failed to register fallback font {AR_FONT_FALLBACK}: {e}")
 
-def find_arabic_font() -> tuple[str, Path | None]:
-    """
-    Attempts to locate a suitable Arabic font.
+    # آخر حل: خط مدمج (لن يعرض العربية بشكل مثالي لكنه يمنع الانهيار)
+    try:
+        pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
+        AR_FONT = "HeiseiMin-W3"
+        print("🟡 Using built-in fallback font (HeiseiMin-W3)")
+    except Exception as e:
+        # كمل بدون تسجيل (نادر جداً)
+        print(f"❌ Could not register any font: {e}")
 
-    Search order:
-    1) From project assets.
-    2) From common system paths.
+# نفّذ التسجيل عند الاستيراد
+ensure_fonts()
 
-    Returns:
-        tuple[str, Path | None]: Font name and path or fallback.
-    """
-    # 1) From assets
-    cand = ASSETS / "NotoNaskhArabic-Regular.ttf"
-    if cand.exists():
-        return "NotoNaskh", cand
-
-    # 2) System paths
-    sys = platform.system().lower()
-    candidates: list[Path] = []
-    if "windows" in sys:
-        candidates += [
-            Path(r"C:\Windows\Fonts\NotoNaskhArabic-Regular.ttf"),
-            Path(r"C:\Windows\Fonts\arial.ttf"),  # Lower quality Arabic fallback
-        ]
-    elif "linux" in sys:
-        candidates += [
-            Path("/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
-            Path("/usr/share/fonts/truetype/noto/NotoNaskhArabicUI-Regular.ttf"),
-        ]
-    elif "darwin" in sys:  # macOS
-        candidates += [
-            Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
-            Path("/Library/Fonts/NotoNaskhArabic-Regular.ttf"),
-        ]
-
-    for p in candidates:
-        if p.exists():
-            return "NotoNaskh", p
-
-    return "Helvetica", None  # Fallback
-
-
-def find_symbol_font() -> tuple[str, Path | None]:
-    """
-    Locates a font for symbols/emojis based on the operating system.
-
-    Returns:
-        tuple[str, Path | None]: Font name and path or fallback.
-    """
-    sys = platform.system().lower()
-    if "windows" in sys:
-        p = Path(r"C:\Windows\Fonts\seguisym.ttf")
-        return "SegoeUISymbol", p if p.exists() else None
-    elif "linux" in sys:
-        p = Path("/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf")
-        return "NotoSansSymbols2", p if p.exists() else None
-    elif "darwin" in sys:
-        p = Path("/System/Library/Fonts/Supplemental/Apple Symbols.ttf")
-        return "AppleSymbols", p if p.exists() else None
-    return "Helvetica", None
-
-
-# Register Arabic font
-_AR_NAME, _AR_PATH = find_arabic_font()
-AR_FONT = register_font_safe(_AR_PATH, _AR_NAME, fallback="Helvetica")
-
-# Register symbol font
-_UI_NAME, _UI_PATH = find_symbol_font()
-UI_FONT = register_font_safe(_UI_PATH, _UI_NAME, fallback="Helvetica")
+__all__ = ["AR_FONT", "rtl", "ensure_fonts"]
