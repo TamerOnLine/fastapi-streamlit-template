@@ -27,7 +27,7 @@ from reportlab.lib.units import mm
 from .config import *  # UI_LANG, CARD_PAD, GAP_AFTER_HEADING, colors...
 from .blocks import Frame, RenderContext, get  # registry + types
 from .theme_loader import get_page_cfg  # reads theme["page"] if provided
-
+from . import blocks
 
 # -----------------------------
 # Helpers: page + columns
