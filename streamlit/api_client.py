@@ -1,31 +1,38 @@
-# streamlit/api_client.py
 import requests
 
 API_BASE = "http://127.0.0.1:8000"
 
-def generate_pdf(profile: dict, theme_name: str, layout_name: str | None, ui_lang: str, rtl_mode: bool, use_simple_json: bool = True) -> bytes:
+def generate_pdf(
+    profile: dict,
+    theme_name: str,
+    layout_name: str | None,
+    ui_lang: str,
+    rtl_mode: bool,
+) -> bytes:
+    """
+    Sends a POST request to generate a PDF using the specified profile and layout.
+
+    Args:
+        profile (dict): The profile data to include in the PDF.
+        theme_name (str): The name of the theme to use.
+        layout_name (str | None): The layout name or None for default.
+        ui_lang (str): The UI language code.
+        rtl_mode (bool): Whether to use right-to-left layout.
+
+    Returns:
+        bytes: The generated PDF content in binary form.
+
+    Raises:
+        HTTPError: If the request fails with a non-2xx response.
+    """
     payload = {
         "theme_name": theme_name,
         "layout_name": layout_name,
         "ui_lang": ui_lang,
         "rtl_mode": rtl_mode,
-        "profile": profile or {},  # مهم
+        "profile": profile or {},
     }
 
-    if use_simple_json:
-        # ✅ أرسل JSON إلى /generate-form-simple
-        r = requests.post(f"{API_BASE}/generate-form-simple", json=payload, timeout=60)
-    else:
-        # (توافق قديم) multipart إلى /generate-form
-        files = {}
-        data = {
-            "theme_name": theme_name,
-            "layout_name": layout_name or "",
-            "ui_lang": ui_lang,
-            "rtl_mode": str(bool(rtl_mode)).lower(),
-            "profile_json": __import__("json").dumps(profile or {}),
-        }
-        r = requests.post(f"{API_BASE}/generate-form", data=data, files=files, timeout=60)
-
-    r.raise_for_status()
-    return r.content
+    response = requests.post(f"{API_BASE}/generate-form-simple", json=payload, timeout=60)
+    response.raise_for_status()
+    return response.content

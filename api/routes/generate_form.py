@@ -1,33 +1,31 @@
-# api/routes/generate_form.py
 from __future__ import annotations
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
 from io import BytesIO
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 import json
 import traceback
 
+from api.schemas import GenerateFormRequest
 from ..pdf_utils.resume import build_resume_pdf
 
-# للفحص المسبق (Preflight)
-from ..pdf_utils.blocks.registry import get as get_block
+try:
+    from ..pdf_utils.blocks.registry import get as get_block
+except Exception:
+    def get_block(_: str):
+        return None
 
 router = APIRouter(prefix="", tags=["generate"])
 
-# --------------------------------------------------------------------
-# مسارات المشروع
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 THEMES_DIR = PROJECT_ROOT / "themes"
 LAYOUTS_DIR = PROJECT_ROOT / "layouts"
 
-# --------------------------------------------------------------------
-# أدوات قراءة وتطبيع
 def _prefer_fixed(path: Path) -> Path:
     """
-    لو هناك نسخة .fixed لنفس الملف نستخدمها، وإلا نرجع المسار الأصلي.
+    If a .fixed version of the file exists, return it; otherwise, return the original path.
     """
     fixed = path.with_suffix(path.suffix + ".fixed")
     return fixed if fixed.exists() else path
@@ -36,14 +34,13 @@ def _safe_json_read(path: Path) -> Dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"[⚠️] Failed to read JSON: {path} -> {e}")
+        print(f"[Warning] Failed to read JSON: {path} -> {e}")
         return {}
 
 def _normalize_layout_list(items: List[Any]) -> List[Dict[str, Any]]:
     """
-    حوّل عناصر layout إلى قائمة قواميس {block_id: ...}
-    يقبل عناصر نصية أو قواميس جاهزة.
-    يتجاهل العناصر غير الصالحة مع لوج تحذيري.
+    Converts layout items into a list of dictionaries with block_id.
+    Accepts strings or dictionaries. Skips invalid items.
     """
     out: List[Dict[str, Any]] = []
     for it in (items or []):
@@ -52,82 +49,48 @@ def _normalize_layout_list(items: List[Any]) -> List[Dict[str, Any]]:
         elif isinstance(it, dict) and it.get("block_id"):
             out.append(it)
         else:
-            print(f"[⚠️] Skipping invalid layout item: {it!r}")
+            print(f"[Warning] Skipping invalid layout item: {it!r}")
     return out
 
 def _normalize_layout_value(layout_value: Any) -> Dict[str, Any]:
     """
-    يقبل:
-      - dict يحتوي "layout"
-      - list مباشرة
-    ويُعيد دائمًا dict بشكل {"layout": [ {block_id:...}, ... ]}
+    Returns a unified layout dictionary format with page, frames, and layout keys.
     """
-    if isinstance(layout_value, dict):
-        return {"layout": _normalize_layout_list(layout_value.get("layout") or [])}
-    if isinstance(layout_value, list):
-        return {"layout": _normalize_layout_list(layout_value)}
-    return {"layout": []}
+    layout_value = layout_value or {}
+    page = layout_value.get("page") or {}
+    frames = layout_value.get("frames") or {}
+    layout_list = _normalize_layout_list(layout_value.get("layout") or [])
+    return {"page": page, "frames": frames, "layout": layout_list}
 
-def _build_layout_inline_from_theme(theme_name: str) -> Dict[str, Any]:
+def _build_layout_inline_from_theme(theme_name: Optional[str]) -> Dict[str, Any]:
     """
-    تحميل التخطيط المضمّن من ملف الثيم.
-    يدعم وجوده تحت المفتاح "layout_inline" أو "layout".
-    يفضّل ملف .fixed إن وُجد.
+    Reads a theme JSON file and extracts inline layout if available.
     """
-    base = THEMES_DIR / f"{theme_name}.theme.json"
-    path = _prefer_fixed(base)
-    print(f"[THEME DEBUG] Loading theme file from: {path}")
-    if not path.exists():
-        print(f"[⚠️] Theme '{theme_name}' not found in {THEMES_DIR}")
-        return {"layout": []}
+    theme_name = theme_name or "default"
+    theme_path = _prefer_fixed(THEMES_DIR / f"{theme_name}.theme.json")
+    theme = _safe_json_read(theme_path)
+    if any(k in theme for k in ("layout", "frames", "page")):
+        return _normalize_layout_value(theme)
+    return {"page": {}, "frames": {}, "layout": []}
 
-    data = _safe_json_read(path)
-    layout_value = data.get("layout_inline") or data.get("layout")
-    return _normalize_layout_value(layout_value)
-
-def _load_layout_inline(layout_name: Optional[str]) -> Optional[Dict[str, Any]]:
+def _load_layout_inline(layout_name: Optional[str]) -> Dict[str, Any]:
     """
-    تحميل تخطيط خارجي من مجلد /layouts.
-    يدعم "layout" أو "layout_blocks" ويحتفظ بـ frames/page إن وُجدا.
-    يفضّل ملف .fixed إن وُجد.
+    Loads and normalizes an external layout file.
     """
     if not layout_name:
-        return None
+        return {}
+    p = _prefer_fixed(LAYOUTS_DIR / f"{layout_name}.layout.json")
+    return _normalize_layout_value(_safe_json_read(p))
 
-    base = LAYOUTS_DIR / f"{layout_name}.layout.json"
-    path = _prefer_fixed(base)
-    print(f"[LAYOUT DEBUG] Loading layout file from: {path}")
-    if not path.exists():
-        print(f"[⚠️] Layout '{layout_name}' not found in {LAYOUTS_DIR}")
-        return None
-
-    data = _safe_json_read(path)
-    # تطبيع مفتاح بديل
-    if "layout_blocks" in data and "layout" not in data:
-        data["layout"] = data.get("layout_blocks") or []
-
-    normalized_layout = _normalize_layout_value(data.get("layout"))
-    out: Dict[str, Any] = {"layout": normalized_layout.get("layout", [])}
-
-    # احتفظ بـ frames/page إن وُجدا وبنية صحيحة
-    if isinstance(data.get("frames"), dict):
-        out["frames"] = data["frames"]
-    if isinstance(data.get("page"), dict):
-        out["page"] = data["page"]
-
-    return out
-
-def _merge_layouts(theme_inline: Dict[str, Any], layout_inline: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _merge_layouts(theme_inline: Dict[str, Any], layout_inline: Dict[str, Any]) -> Dict[str, Any]:
     """
-    دمج تخطيط الثيم المضمّن مع تخطيط خارجي.
-    التخطيط الخارجي يتفوّق على مفاتيح ("frames", "layout", "page") إن وُجدت.
+    Merges theme and layout, with layout taking precedence.
     """
     merged = dict(theme_inline or {"layout": []})
     if layout_inline:
         for key in ("frames", "layout", "page"):
             if key in layout_inline:
                 merged[key] = layout_inline[key]
-    # تأكد من التطبيع النهائي
     return _normalize_layout_value(merged)
 
 def _log_layout_blocks(layout_inline: Dict[str, Any]) -> None:
@@ -137,11 +100,11 @@ def _log_layout_blocks(layout_inline: Dict[str, Any]) -> None:
             blocks.append(b.get("block_id"))
         elif isinstance(b, str):
             blocks.append(b)
-    print(f">> 🗺️  Layout blocks: {blocks}")
+    print(f"[Info] Layout blocks: {blocks}")
 
 def _preflight(layout_inline: dict, profile: dict):
     """
-    فحص مبكر: يطبع قائمة البلوكات، وما هو غير مسجّل، وما لا توجد له بيانات في profile.
+    Pre-check: logs expected blocks, unregistered blocks, and missing profile data.
     """
     wanted = [b.get("block_id") for b in (layout_inline.get("layout") or []) if isinstance(b, dict)]
     not_registered = []
@@ -150,88 +113,64 @@ def _preflight(layout_inline: dict, profile: dict):
             get_block(b)
         except Exception:
             not_registered.append(b)
-    missing_data = [b for b in wanted if b not in (profile or {})]
+
+    expected_keys = {
+        "header", "contact", "skills", "languages", "summary",
+        "projects", "education", "social_links", "avatar"
+    }
+    missing_data = []
+    for b in wanted:
+        if b in {"decor_curve", "left_panel_bg"}:
+            continue
+        key_map = {
+            "header_name": "header",
+            "contact_info": "contact",
+            "key_skills": "skills",
+            "languages": "languages",
+            "text_section": "summary",
+            "projects": "projects",
+            "education": "education",
+            "social_links": "social_links",
+            "avatar_circle": "avatar",
+        }
+        pk = key_map.get(b)
+        if pk and pk not in (profile or {}):
+            missing_data.append(b)
+
     print(f"[PREFLIGHT] blocks: {wanted}")
     if not_registered:
-        print(f"[PREFLIGHT] ⚠️ not registered: {not_registered}")
+        print(f"[PREFLIGHT] Warning: not registered: {not_registered}")
     if missing_data:
-        print(f"[PREFLIGHT] ℹ️ no profile data for: {missing_data}")
+        print(f"[PREFLIGHT] Info: no profile data for: {missing_data}")
 
-# --------------------------------------------------------------------
-# نموذج الطلب للمسار البسيط (JSON)
-class GenerateFormRequest(BaseModel):
-    theme_name: str = "default"
-    layout_name: Optional[str] = None
-    ui_lang: str = "ar"
-    rtl_mode: bool = True
-    profile: Dict[str, Any] = {}
-
-# --------------------------------------------------------------------
-# Advanced: form/multipart (توافق)
-@router.post("/generate-form")
-async def generate_form(
-    theme_name: str = Form("default"),
-    layout_name: Optional[str] = Form(None),
-    ui_lang: str = Form("ar"),
-    rtl_mode: bool = Form(True),
-    profile_json: Optional[str] = Form(None),
-    profile_file: Optional[UploadFile] = File(None),
-):
-    try:
-        if profile_file:
-            profile_data = json.loads(profile_file.file.read().decode("utf-8"))
-        elif profile_json:
-            profile_data = json.loads(profile_json)
-        else:
-            raise HTTPException(status_code=400, detail="Profile data is required")
-
-        data: Dict[str, Any] = {
-            "ui_lang": ui_lang or "ar",
-            "rtl_mode": bool(rtl_mode),
-            "profile": profile_data or {},
-            "theme_name": theme_name or "default",
-        }
-
-        theme_inline = _build_layout_inline_from_theme(theme_name)
-        extra_layout = _load_layout_inline(layout_name) if layout_name else None
-        merged_inline = _merge_layouts(theme_inline, extra_layout)
-
-        _log_layout_blocks(merged_inline)
-        _preflight(merged_inline, data["profile"])  # فحص مبكر مفيد
-
-        data["layout_inline"] = merged_inline
-
-        pdf_bytes = build_resume_pdf(data=data)
-        return StreamingResponse(
-            BytesIO(pdf_bytes),
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="resume-{theme_name}.pdf"'},
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        print("=== /generate-form ERROR ===")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error generating PDF: {e}")
-
-# --------------------------------------------------------------------
-# Simple: JSON (مُفضّل لـ Streamlit)
 @router.post("/generate-form-simple")
 async def generate_form_simple(req: GenerateFormRequest):
+    """
+    Accepts payload matching GenerateFormRequest schema,
+    merges layout, generates PDF, and returns it.
+    """
     try:
+        prof = req.profile.dict()
+        print("[Debug] PROFILE keys:", list(prof.keys()))
+        print("[Debug] header:", prof.get("header"))
+        print("[Debug] counts -> summary:", len(prof.get("summary", [])),
+              "skills:", len(prof.get("skills", [])),
+              "projects:", len(prof.get("projects", [])),
+              "education:", len(prof.get("education", [])))
+
         data: Dict[str, Any] = {
-            "ui_lang": req.ui_lang or "ar",
+            "ui_lang": req.ui_lang,
             "rtl_mode": bool(req.rtl_mode),
-            "profile": req.profile or {},
-            "theme_name": req.theme_name or "default",
+            "profile": prof,
+            "theme_name": req.theme_name,
         }
 
         theme_inline = _build_layout_inline_from_theme(req.theme_name)
-        extra_layout = _load_layout_inline(req.layout_name) if req.layout_name else None
+        extra_layout = _load_layout_inline(req.layout_name) if req.layout_name else {}
         merged_inline = _merge_layouts(theme_inline, extra_layout)
 
         _log_layout_blocks(merged_inline)
-        _preflight(merged_inline, data["profile"])  # فحص مبكر مفيد
+        _preflight(merged_inline, data["profile"])
 
         data["layout_inline"] = merged_inline
 
@@ -242,14 +181,15 @@ async def generate_form_simple(req: GenerateFormRequest):
             headers={"Content-Disposition": f'inline; filename="resume-{req.theme_name}.pdf"'},
         )
     except Exception as e:
-        print("=== /generate-form-simple ERROR ===")
+        print("[Error] /generate-form-simple:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error generating PDF: {e}")
 
-# --------------------------------------------------------------------
-# Health check (اختياري)
 @router.get("/healthz")
 def healthz():
+    """
+    Health check endpoint.
+    """
     return {
         "ok": True,
         "themes_dir": str(THEMES_DIR),

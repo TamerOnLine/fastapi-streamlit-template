@@ -1,0 +1,33 @@
+{
+  "$id": "https://local.schemas/layout.v1.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Resume Layout v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "layout"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string", "minLength": 1 },
+    "layout": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block_id"],
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "enum": [
+              "header_name","contact_info","key_skills","languages",
+              "text_section","projects","education","social_links",
+              "avatar_circle","decor_curve","left_panel_bg"
+            ]
+          }
+        }
+      }
+    },
+    "frames": { "type": "object" },
+    "page":   { "type": "object" }
+  }
+}

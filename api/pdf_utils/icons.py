@@ -1,4 +1,3 @@
-# icons.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,19 +9,23 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 
 # =========================
-# إعداد المسارات والأيقونات
+# Icon paths and setup
 # =========================
 
-# مجلد الأيقونات داخل المشروع
 ICONS_DIR = Path(__file__).parent / "assets" / "icons"
 
-
 def icon_path(name: str) -> Path:
-    """أعد مسار الأيقونة حسب الاسم."""
+    """
+    Return the resolved path for a given icon name.
+
+    Args:
+        name (str): Icon file name.
+
+    Returns:
+        Path: Absolute path to the icon file.
+    """
     return (ICONS_DIR / name).resolve()
 
-
-# أيقونات الأقسام
 SECTION_ICON_PATHS: dict[str, Optional[Path]] = {
     "key_skills": icon_path("skills.png"),
     "languages": icon_path("globe.png"),
@@ -30,14 +33,17 @@ SECTION_ICON_PATHS: dict[str, Optional[Path]] = {
     "professional_training": icon_path("cap.png"),
 }
 
-
 def get_section_icon(name: str) -> Optional[Path]:
+    """
+    Retrieve the icon path for a given section name.
+
+    Args:
+        name (str): Section identifier.
+
+    Returns:
+        Optional[Path]: Path to the section icon if found.
+    """
     return SECTION_ICON_PATHS.get(name)
-
-
-# =========================
-# أيقونات المعلومات الشخصية
-# =========================
 
 DEFAULT_INFO_ICONS: dict[str, Path] = {
     "address": icon_path("pin.png"),
@@ -57,26 +63,35 @@ DEFAULT_INFO_ICONS: dict[str, Path] = {
     "geburtsdatum": icon_path("cake.png"),
 }
 
-
-# =========================
-# Alias قديم (للتوافق)
-# =========================
-
 ICON_PATHS: dict[str, Path] = {}
 ICON_PATHS.update({k: v for k, v in DEFAULT_INFO_ICONS.items() if v and v.is_file()})
 ICON_PATHS.update({k: v for k, v in SECTION_ICON_PATHS.items() if v and v.is_file()})
 
-
-# =========================
-# أدوات مساعدة للنص والروابط
-# =========================
-
 def _text_width(text: str, font_name: str, font_size: int) -> float:
+    """
+    Calculate the width of a text string for a given font and size.
+
+    Args:
+        text (str): The text to measure.
+        font_name (str): Name of the font.
+        font_size (int): Font size.
+
+    Returns:
+        float: Width of the text in points.
+    """
     return stringWidth(text, font_name, font_size)
 
-
 def _maybe_make_link(value: str, label: Optional[str] = None) -> Optional[str]:
-    """توليد روابط ذكية (mailto, tel, github, linkedin...)"""
+    """
+    Generate smart hyperlinks (mailto, tel, GitHub, LinkedIn) from string values.
+
+    Args:
+        value (str): Input string to convert into a link.
+        label (Optional[str]): Label to help determine link type.
+
+    Returns:
+        Optional[str]: A hyperlink string or None.
+    """
     v = (value or "").strip()
 
     if v.startswith("http://") or v.startswith("https://"):
@@ -92,11 +107,6 @@ def _maybe_make_link(value: str, label: Optional[str] = None) -> Optional[str]:
         return f"https://www.linkedin.com/in/{v}"
 
     return None
-
-
-# =========================
-# رسم عنوان قسم + أيقونة
-# =========================
 
 def draw_heading_with_icon(
     c: canvas.Canvas,
@@ -117,7 +127,32 @@ def draw_heading_with_icon(
     gap_below: float = 6.0,
     baseline_tweak: float = 9.0,
 ) -> float:
-    """يرسم عنوان قسم مع أيقونة صغيرة"""
+    """
+    Draw a section heading with an optional icon to the left.
+
+    Args:
+        c (canvas.Canvas): ReportLab canvas.
+        x (float): Starting x-coordinate.
+        y (float): Starting y-coordinate.
+        title (str): Section title.
+        icon (Optional[Path]): Path to the icon file.
+
+    Keyword Args:
+        font (str): Font name.
+        size (int): Font size.
+        color: Font color.
+        icon_w (float): Icon width.
+        icon_h (float): Icon height.
+        pad_x (float): Padding between icon and text.
+        underline_w (Optional[float]): Width of underline.
+        rule_color: Underline color.
+        rule_width (float): Underline stroke width.
+        gap_below (float): Gap below text.
+        baseline_tweak (float): Vertical adjustment for text baseline.
+
+    Returns:
+        float: New y-coordinate after rendering.
+    """
     draw_x = x
     if icon and icon.is_file():
         try:
@@ -142,11 +177,6 @@ def draw_heading_with_icon(
 
     return new_y
 
-
-# =========================
-# رسم سطر: أيقونة + نص + رابط
-# =========================
-
 def draw_icon_line(
     c: canvas.Canvas,
     x: float,
@@ -164,7 +194,30 @@ def draw_icon_line(
     link: Optional[str] = None,
     max_w: Optional[float] = None,
 ) -> float:
-    """يرسم سطر (أيقونة + نص) مع رابط اختياري"""
+    """
+    Draw a line with optional icon, text, and a hyperlink.
+
+    Args:
+        c (canvas.Canvas): ReportLab canvas.
+        x (float): Starting x-coordinate.
+        y (float): Starting y-coordinate.
+        text (str): Text to render.
+
+    Keyword Args:
+        icon (Optional[Path]): Path to the icon.
+        font (str): Font name.
+        size (int): Font size.
+        color: Font color.
+        icon_w (float): Icon width.
+        icon_h (float): Icon height.
+        pad_x (float): Padding between icon and text.
+        line_gap (float): Vertical gap between lines.
+        link (Optional[str]): Optional hyperlink.
+        max_w (Optional[float]): Optional max width constraint.
+
+    Returns:
+        float: New y-coordinate after rendering.
+    """
     draw_x = x
     if icon and icon.is_file():
         try:
@@ -185,11 +238,6 @@ def draw_icon_line(
 
     return y - line_gap
 
-
-# =========================
-# info_line: سطر معلومات شخصية
-# =========================
-
 def info_line(
     c: canvas.Canvas,
     x: float,
@@ -203,15 +251,39 @@ def info_line(
     color=colors.black,
     line_gap: float = 14,
 ) -> float:
+    """
+    Draw a personal information line with a possible icon and link.
+
+    Args:
+        c (canvas.Canvas): ReportLab canvas.
+        x (float): X-coordinate.
+        y (float): Y-coordinate.
+        label (str): Field label.
+        value (str): Field value.
+
+    Keyword Args:
+        max_w (Optional[float]): Max width for content.
+        font (str): Font name.
+        size (int): Font size.
+        color: Text color.
+        line_gap (float): Vertical spacing after line.
+
+    Returns:
+        float: New y-coordinate after rendering.
+    """
     lab_lc = (label or "").lower()
     icon = DEFAULT_INFO_ICONS.get(lab_lc)
     link = _maybe_make_link(value, label=lab_lc)
-    return draw_icon_line(c, x, y, value.strip(), icon=icon, font=font, size=size, color=color, line_gap=line_gap, link=link, max_w=max_w)
-
-
-# =========================
-# التصدير
-# =========================
+    return draw_icon_line(
+        c, x, y, value.strip(),
+        icon=icon,
+        font=font,
+        size=size,
+        color=color,
+        line_gap=line_gap,
+        link=link,
+        max_w=max_w
+    )
 
 __all__ = [
     "ICONS_DIR",

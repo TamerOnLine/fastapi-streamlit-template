@@ -1,73 +1,86 @@
 from __future__ import annotations
+
 from importlib.resources import files
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
 # ============================================================
-# 🧩 مسارات ملفات الخطوط داخل الحزمة
+# Font file paths within the package
 # ============================================================
 ASSETS = files("api.pdf_utils.assets")
 FONT_PATH_NOTO = ASSETS / "NotoNaskhArabic-Regular.ttf"
-FONT_PATH_AMIRI = ASSETS / "Amiri-Regular.ttf"   # قد تكون AmiriQuran حسب ما تم تنزيله
+FONT_PATH_AMIRI = ASSETS / "Amiri-Regular.ttf"  # Could be AmiriQuran depending on download
 
 # ============================================================
-# 🎨 أسماء الخطوط داخل ReportLab
+# Font names used within ReportLab
 # ============================================================
 AR_FONT = "NotoNaskhArabic"
 AR_FONT_FALLBACK = "Amiri"
 
 # ============================================================
-# 🧠 دوال مساعدة
+# Helper functions
 # ============================================================
 def rtl(text: str) -> str:
     """
-    واجهة مطلوبة من text.py.
-    حالياً تُعيد النص كما هو (بدون تشكيل/إعادة ترتيب).
-    لاحقاً يمكن تفعيل arabic_reshaper + python-bidi إن رغبت.
+    Return the input text as-is. This is a placeholder for RTL text reshaping
+    and bidirectional support, which can be enabled with arabic_reshaper and python-bidi.
+
+    Args:
+        text (str): Input Arabic text.
+
+    Returns:
+        str: The unmodified input text, or an empty string if None.
     """
     return text or ""
 
 def _register_ttf_font(name: str, path_str: str) -> None:
+    """
+    Register a TrueType font with ReportLab.
+
+    Args:
+        name (str): The name to register the font under.
+        path_str (str): File path to the .ttf font.
+    """
     pdfmetrics.registerFont(TTFont(name, path_str))
 
 # ============================================================
-# ⚙️ تسجيل الخطوط مع fallback آمن
+# Font registration with safe fallback
 # ============================================================
 def ensure_fonts() -> None:
     """
-    نسجّل خط Noto Naskh أولاً، ثم Amiri كبديل.
-    لو فشل الاثنان، نستخدم خطاً مدمجاً في ReportLab لضمان عدم تعطل السيرفر.
+    Attempt to register Arabic fonts with ReportLab. Tries to register Noto Naskh first,
+    then Amiri as a fallback. If both fail, attempts to register a built-in Unicode font
+    to avoid server crashes.
+
+    Modifies:
+        AR_FONT (str): Global variable may be updated to fallback font name.
     """
     global AR_FONT
 
-    # جرّب Noto Naskh
     try:
         _register_ttf_font(AR_FONT, str(FONT_PATH_NOTO))
-        print(f"✅ Registered Arabic font: {AR_FONT}")
+        print(f"Registered Arabic font: {AR_FONT}")
         return
     except Exception as e:
-        print(f"⚠️ Failed to register {AR_FONT}: {e}")
+        print(f"Failed to register {AR_FONT}: {e}")
 
-    # جرّب Amiri
     try:
         _register_ttf_font(AR_FONT_FALLBACK, str(FONT_PATH_AMIRI))
         AR_FONT = AR_FONT_FALLBACK
-        print(f"✅ Fallback font registered: {AR_FONT_FALLBACK}")
+        print(f"Fallback font registered: {AR_FONT_FALLBACK}")
         return
     except Exception as e:
-        print(f"⚠️ Failed to register fallback font {AR_FONT_FALLBACK}: {e}")
+        print(f"Failed to register fallback font {AR_FONT_FALLBACK}: {e}")
 
-    # آخر حل: خط مدمج (لن يعرض العربية بشكل مثالي لكنه يمنع الانهيار)
     try:
         pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
         AR_FONT = "HeiseiMin-W3"
-        print("🟡 Using built-in fallback font (HeiseiMin-W3)")
+        print("Using built-in fallback font (HeiseiMin-W3)")
     except Exception as e:
-        # كمل بدون تسجيل (نادر جداً)
-        print(f"❌ Could not register any font: {e}")
+        print(f"Could not register any font: {e}")
 
-# نفّذ التسجيل عند الاستيراد
+# Register fonts upon import
 ensure_fonts()
 
 __all__ = ["AR_FONT", "rtl", "ensure_fonts"]

@@ -21,31 +21,31 @@ def open_asset_bytes(rel_path: str) -> bytes:
 
 def asset_path(rel_path: str) -> str:
     """
-    Return a path-like string to the asset. Suitable for most use cases.
+    Return a string path to the asset within the package.
 
     Args:
         rel_path (str): Relative path to the asset within the package.
 
     Returns:
-        str: A string representing the path to the asset.
+        str: A string path to the specified asset.
 
     Note:
-        If a real file on disk is required, use `extract_resource` instead.
+        If a physical file is required, consider using `extract_resource()`.
     """
     return str(files(PKG) / rel_path)
 
 def extract_resource(rel_path: str) -> Path:
     """
-    Copy the packaged asset to a real temporary file and return its filesystem path.
+    Copy a packaged asset to a temporary file and return its filesystem path.
 
     Args:
         rel_path (str): Relative path to the asset within the package.
 
     Returns:
-        Path: Path to the extracted temporary file on disk.
+        Path: Path to the extracted file on disk.
 
     Note:
-        Use this only if a real file is required by a third-party library (e.g., TTFont).
+        Use this when a real file path is required by a third-party library (e.g., ReportLab's TTFont).
     """
     src = (files(PKG) / rel_path).open("rb")
     try:

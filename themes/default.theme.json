@@ -1,23 +1,25 @@
 {
-  "style": {
-    "HEADING_COLOR": "#1F4B99",
-    "RULE_COLOR": "#C8CDD9",
-    "NAME_SIZE": 22,
-    "GAP_AFTER_HEADING": 12
+  "$schema": "../schemas/theme.v1.json",
+  "name": "default",
+  "page": {
+    "size": "A4",
+    "margins_mm": { "top": 12, "right": 12, "bottom": 12, "left": 12 }
   },
+  "palette": {
+    "primary": "#0F766E",
+    "text": "#111827",
+    "muted": "#6B7280",
+    "bg": "#FFFFFF"
+  },
+  "fonts": { "arabic": "NotoNaskhArabic", "latin": "Inter" },
   "layout": [
-    { "block_id": "header_name", "frame": "right" },
-    { "block_id": "avatar_circle", "frame": "left", "data": { "max_d_mm": 42 } },
-    { "block_id": "contact_info", "frame": "left" },
-    { "block_id": "key_skills", "frame": "left" },
-    { "block_id": "languages", "frame": "left" },
-    { "block_id": "social_links", "frame": "left" },
-    { "block_id": "text_section", "frame": "right", "source": "summary" },
-    { "block_id": "projects", "frame": "right" },
-    { "block_id": "education", "frame": "right" }
+    { "block_id": "header_name" },
+    { "block_id": "contact_info" },
+    { "block_id": "key_skills" },
+    { "block_id": "languages" },
+    { "block_id": "text_section" },
+    { "block_id": "projects" },
+    { "block_id": "education" }
   ],
-  "defaults": {
-    "ui_lang": "en",
-    "rtl_mode": false
-  }
+  "frames": {}
 }

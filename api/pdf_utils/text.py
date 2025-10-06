@@ -1,8 +1,3 @@
-"""
-Text wrapping and paragraph rendering utilities for PDF generation.
-Handles LTR and RTL text alignment and spacing.
-"""
-
 from typing import List
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -10,9 +5,19 @@ from reportlab.pdfbase import pdfmetrics
 from .fonts import rtl
 from .config import LEADING_BODY, LEADING_BODY_RTL, GAP_BETWEEN_PARAS
 
-
 def wrap_text(text: str, font: str, size: int, max_w: float) -> List[str]:
-    """Wraps a single block of text into lines fitting the specified width."""
+    """
+    Wrap a block of text into multiple lines based on a maximum width.
+
+    Args:
+        text (str): Input text string.
+        font (str): Font name.
+        size (int): Font size.
+        max_w (float): Maximum line width in points.
+
+    Returns:
+        List[str]: List of text lines.
+    """
     words = text.split()
     if not words:
         return [""]
@@ -27,15 +32,25 @@ def wrap_text(text: str, font: str, size: int, max_w: float) -> List[str]:
     lines.append(cur)
     return lines
 
-
 def wrap_lines(lines: List[str], font: str, size: int, max_w: float, do_rtl=False) -> List[str]:
-    """Wraps multiple lines of text to fit within a max width, optionally applying RTL logic."""
+    """
+    Wrap multiple lines of text with optional RTL reshaping.
+
+    Args:
+        lines (List[str]): List of input lines.
+        font (str): Font name.
+        size (int): Font size.
+        max_w (float): Maximum width for each line.
+        do_rtl (bool): Whether to apply RTL shaping.
+
+    Returns:
+        List[str]: Wrapped and optionally reshaped lines.
+    """
     out: List[str] = []
     for ln in lines:
         t = rtl(ln) if do_rtl else ln
         out.extend(wrap_text(t, font, size, max_w))
     return out
-
 
 def draw_par(
     c: canvas.Canvas,
@@ -51,23 +66,23 @@ def draw_par(
     para_gap: int | None = None,
 ) -> float:
     """
-    Draws paragraphs with wrapping and spacing control.
+    Render paragraphs with wrapping, alignment, and spacing.
 
     Args:
         c (canvas.Canvas): The PDF canvas.
-        x (float): X-coordinate.
+        x (float): Starting X-coordinate.
         y (float): Starting Y-coordinate.
-        lines (List[str]): Paragraph lines.
+        lines (List[str]): Lines of text to render.
         font (str): Font name.
         size (int): Font size.
-        max_w (float): Maximum width for wrapping.
+        max_w (float): Maximum paragraph width.
         align (str): Text alignment ("left" or "right").
-        rtl_mode (bool): Enables RTL reshaping.
-        leading (int | None): Line spacing.
-        para_gap (int | None): Gap between paragraphs.
+        rtl_mode (bool): Whether to apply RTL text shaping.
+        leading (int | None): Line height override.
+        para_gap (int | None): Vertical gap between paragraphs.
 
     Returns:
-        float: Updated y-coordinate after drawing.
+        float: New Y-coordinate after rendering.
     """
     c.setFont(font, size)
     cur = y

@@ -1,4 +1,3 @@
-# api/pdf_utils/data_utils.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,6 +5,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 def _norm_projects(projects_list: List[Any]) -> List[Tuple[str, str, Optional[str]]]:
+    """
+    Normalize various forms of project entries into a consistent tuple format:
+    (title, description, optional link).
+    """
     out: List[Tuple[str, str, Optional[str]]] = []
     for it in projects_list or []:
         if isinstance(it, (list, tuple)) and it:
@@ -24,6 +27,9 @@ def _norm_projects(projects_list: List[Any]) -> List[Tuple[str, str, Optional[st
 
 
 def _read_bytes_if_exists(pathlike: str | Path | None) -> bytes | None:
+    """
+    Safely read bytes from a file if it exists and is a file.
+    """
     if not pathlike:
         return None
     p = Path(pathlike)
@@ -37,17 +43,20 @@ def _read_bytes_if_exists(pathlike: str | Path | None) -> bytes | None:
 
 def build_ready_from_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     """
-    يبني مخزن بيانات الكتل (ready) من ملف profile.json موحّد البنية.
-    يدعم حقول شائعة:
-      - header: {name, title}
-      - avatar: {path}
-      - contact: {email, phone, location, github, linkedin, ...}
-      - skills: [ ... ]
-      - languages: [ "Arabic — Native", "English — B1", ... ]
-      - projects: [ [title, desc, link], {...}, ... ]
-      - education: [ "2020–2022 — ..." ]
-      - summary: [ "line 1", "line 2", ... ]
-    يمكن التوسعة لاحقًا حسب حاجتك.
+    Build a data-ready dictionary from a standardized profile structure.
+
+    Recognized profile keys include:
+    - header: {name, title}
+    - avatar: {path}
+    - contact: {email, phone, location, github, linkedin, ...}
+    - skills: list of skills
+    - languages: list of language strings
+    - projects: list of tuples or dicts (title, desc, link)
+    - education: list of educational entries
+    - summary: list of summary lines
+
+    Additional optional sections supported:
+    - experience, objective, activities, volunteer, achievements, publications
     """
     header = profile.get("header") or {}
     name = (header.get("name") or "").strip()
@@ -65,7 +74,7 @@ def build_ready_from_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
 
     norm_projects = _norm_projects(projects_list)
 
-    # social_links: التقط فقط الحقول الاجتماعية المعروفة
+    # Extract known social links from contact section
     social: Dict[str, str] = {}
     for k, v in (contact or {}).items():
         kl = str(k).lower()
@@ -81,12 +90,10 @@ def build_ready_from_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
         "social_links": social,
         "projects": {"items": norm_projects, "title": None},
         "education": {"items": education_items, "title": None},
-        # أمثلة لأقسام نصية عامة
         "text_section:summary": {"title": "", "lines": summary_lines},
         "experience": {"items": profile.get("experience") or []},
         "objective": {"lines": profile.get("objective") or []},
         "activities": {"lines": profile.get("activities") or []},
-        # عناصر زخرفية/رؤوس مخصّصة قد يمررها الـlayout عبر data فقط
         "rule": {},
         "header_bar": {},
         "links_inline": {},

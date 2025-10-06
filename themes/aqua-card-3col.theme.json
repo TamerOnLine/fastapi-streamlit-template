@@ -1,76 +1,25 @@
 {
+  "$schema": "../schemas/theme.v1.json",
+  "name": "aqua-card-3col",
   "page": {
     "size": "A4",
-    "margins_mm": {
-      "top": 16,
-      "right": 16,
-      "bottom": 16,
-      "left": 16
-    }
+    "margins_mm": { "top": 10, "right": 10, "bottom": 10, "left": 10 }
   },
-  "style": {
-    "HEADING_COLOR": "#0EA5B7",
-    "SUBHEAD_COLOR": "#0B7285",
-    "RULE_COLOR": "#CFE9EF",
-    "NAME_SIZE": 26,
-    "TEXT_SIZE": 10,
-    "RIGHT_SEC_RULE_TO_TEXT_GAP": 12
+  "palette": {
+    "primary": "#0891B2",
+    "text": "#0F172A",
+    "muted": "#64748B",
+    "bg": "#FFFFFF"
   },
-  "columns": [
-    {
-      "id": "left",
-      "w_mm": 64,
-      "gap_right_mm": 6,
-      "bg_block": "left_panel_bg"
-    },
-    {
-      "id": "middle",
-      "w_mm": 64,
-      "gap_right_mm": 6
-    },
-    {
-      "id": "right",
-      "flex": 1
-    }
-  ],
+  "fonts": { "arabic": "NotoNaskhArabic", "latin": "Inter" },
   "layout": [
-    {
-      "block_id": "left_panel_bg",
-      "col": "left",
-      "data": { "pad_mm": 2 }
-    },
-    {
-      "block_id": "left_panel_bg",
-      "col": "middle",
-      "data": { "pad_mm": 2 }
-    },
-    {
-      "block_id": "left_panel_bg",
-      "col": "right",
-      "data": { "pad_mm": 2 }
-    },
-    {
-      "block_id": "header_name",
-      "col": "right",
-      "data": {
-        "centered": true,
-        "highlight_bg": "#E0F2FE",
-        "box_h_mm": 28
-      }
-    },
-    { "block_id": "projects",  "col": "right" },
-    { "block_id": "education", "col": "right" },
-
-    { "block_id": "avatar_circle", "col": "left", "data": { "max_d_mm": 42 } },
-    { "block_id": "contact_info",  "col": "left" },
-    { "block_id": "social_links",  "col": "left" },
-    { "block_id": "languages",     "col": "left" },
-
-    { "block_id": "key_skills",    "col": "middle" },
-    { "block_id": "text_section",  "col": "middle", "source": "summary" }
+    { "block_id": "header_name" },
+    { "block_id": "contact_info" },
+    { "block_id": "key_skills" },
+    { "block_id": "languages" },
+    { "block_id": "text_section" },
+    { "block_id": "projects" },
+    { "block_id": "education" }
   ],
-  "defaults": {
-    "ui_lang": "en",
-    "rtl_mode": false
-  }
+  "frames": {}
 }

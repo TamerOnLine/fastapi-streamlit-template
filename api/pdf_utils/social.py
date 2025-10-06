@@ -1,32 +1,25 @@
-"""
-Utility for extracting and normalizing GitHub and LinkedIn handles from raw input.
-Supports direct handles or full URLs with optional prefixes.
-"""
-
 import re
-
 
 def extract_social_handle(kind: str, value: str):
     """
-    Extracts a clean social media handle and constructs the full profile URL.
+    Extract and normalize a GitHub or LinkedIn handle from raw input.
 
-    Supports:
-    - Plain handles (with or without '@')
-    - Full URLs (with or without https/www)
-    - Prefixed entries like "GitHub: user"
+    Handles formats such as:
+      - Plain handles (e.g., "@username", "username")
+      - Full URLs (e.g., "https://github.com/username")
+      - Prefixed labels (e.g., "GitHub: username")
 
     Args:
-        kind (str): Platform type - either "GitHub" or "LinkedIn".
-        value (str): Raw input from the user.
+        kind (str): Platform type; expected values are "GitHub" or "LinkedIn".
+        value (str): Raw input string potentially containing a handle or URL.
 
     Returns:
-        tuple[str, str] | None: A tuple of (handle, full URL), or None if invalid.
+        tuple[str, str] | None: Normalized handle and full profile URL, or None if invalid.
     """
     v = (value or "").strip()
     if not v:
         return None
 
-    # Strip general URL prefixes
     v = re.sub(r'^(https?:\/\/)?(www\.)?', '', v, flags=re.I).strip()
     v = re.sub(r'^\s*(GitHub|LinkedIn)\s*:\s*', '', v, flags=re.I).strip()
 

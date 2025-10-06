@@ -1,19 +1,35 @@
-# api/pdf_utils/utils.py
 from __future__ import annotations
+
 from typing import List, Tuple
 
 def _split_lines(text: str) -> List[str]:
-    """تفكيك نص متعدد الأسطر إلى قائمة، مع تنظيف المسافات الفارغة."""
+    """
+    Split a multiline string into individual lines, trimming whitespace.
+
+    Args:
+        text (str): Multiline string.
+
+    Returns:
+        List[str]: List of cleaned, non-empty lines.
+    """
     if not text:
         return []
     return [ln.strip() for ln in str(text).splitlines() if ln.strip()]
 
 def _parse_projects(lines: List[str]) -> List[Tuple[str, str, str]]:
     """
-    يحوّل قائمة أسطر مشاريع إلى شكل موحّد: [(title, desc, url), ...]
-    يقبل صيغتين:
-      - سطر مفصول بـ ' | '  -> Title | Description | URL
-      - أو سطر واحد بدون |  -> يعامل كعنوان فقط.
+    Convert project lines into a uniform structure of (title, description, URL).
+
+    Supported formats:
+      - 'Title | Description | URL'
+      - 'Title | Description'
+      - 'Title' (title only)
+
+    Args:
+        lines (List[str]): List of raw project lines.
+
+    Returns:
+        List[Tuple[str, str, str]]: List of project tuples.
     """
     projects: List[Tuple[str, str, str]] = []
     for raw in lines or []:
